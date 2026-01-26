@@ -1,0 +1,9 @@
+node_modules/
+esptool/
+.claude/
+lib/
+*.csv
+*.xlsx
+.env*
+!.env.example
+sensors.json
