@@ -217,6 +217,55 @@ const headers = {
 }
 
 
+/**
+ * Post a sensor value to Home Assistant.
+ * Logs the metric name and root cause on failure.
+ *
+ * @param sensorName - The HA sensor suffix (e.g. 'cpu_usage')
+ * @param body - The JSON body to POST
+ */
+async function postToHA( sensorName: string, body: object ): Promise<void> {
+  try {
+    const res = await fetch( HA_URL + `sensor.${ MACHINE_NAME }_${ sensorName }`, {
+      method: 'POST',
+      headers: headers,
+      body: JSON.stringify( body ),
+    } );
+    if ( !res.ok ) {
+      log( `HA error [${ sensorName }]: ${ res.status } ${ res.statusText }` );
+    }
+  } catch ( e: any ) {
+    const cause = e?.cause?.message || e?.cause || e?.message || e;
+    log( `HA fetch failed [${ sensorName }]: ${ cause }` );
+  }
+}
+
+
+/**
+ * Test connectivity to Home Assistant at startup.
+ * Logs the result so the user knows immediately if HA is unreachable.
+ */
+async function checkHAConnectivity(): Promise<boolean> {
+  try {
+    const res = await fetch( HA_URL, {
+      method: 'GET',
+      headers: headers,
+    } );
+    if ( res.ok || res.status === 405 ) {
+      log( `HA connected: ${ HA_URL } (${ res.status })` );
+      return true;
+    }
+    log( `HA returned ${ res.status } ${ res.statusText } — check HA_URL and HA_TOKEN` );
+    return false;
+  } catch ( e: any ) {
+    const cause = e?.cause?.message || e?.cause || e?.message || e;
+    log( `HA unreachable: ${ cause }` );
+    log( `  URL: ${ HA_URL }` );
+    return false;
+  }
+}
+
+
 // const micInstance = mic({
 //   rate: '16000',
 //   channels: '1',
@@ -424,125 +473,69 @@ async function readSystemData() {
 
   if ( payload.cpu_usage !== previousPayload.cpu_usage ) {
     previousPayload.cpu_usage = payload.cpu_usage;
-    log( `Updating ${'cpu_usage'.padEnd(18, ' ' ) } ${ payload.cpu_usage?.toString().padStart( 10, ' ')}` );
-    p.push( fetch( HA_URL +`sensor.${ MACHINE_NAME }_cpu_usage`, {
-      method: 'POST',
-      headers: headers,
-      body: JSON.stringify({ state: payload.cpu_usage, attributes: { unit_of_measurement: '%', friendly_name: 'CPU Usage', } }),
-    }).catch( ( e ) => log( `Error: ${ e }` ) ).then( () => {} ) );
+    log( `Updating ${'cpu_usage'.padEnd( 18, ' ' )} ${ payload.cpu_usage?.toString().padStart( 10, ' ' )}` );
+    p.push( postToHA( 'cpu_usage', { state: payload.cpu_usage, attributes: { unit_of_measurement: '%', friendly_name: 'CPU Usage' } } ) );
   }
   if ( payload.cpu_clock !== previousPayload.cpu_clock ) {
     previousPayload.cpu_clock = payload.cpu_clock;
-    log( `Updating ${'cpu_clock'.padEnd(18, ' ' ) } ${ payload.cpu_clock.toFixed(2).toString().padStart( 10, ' ')}` );
-    p.push( fetch( HA_URL +`sensor.${ MACHINE_NAME }_cpu_clock`, {
-      method: 'POST',
-      headers: headers,
-      body: JSON.stringify({ id: `sensor.${ MACHINE_NAME }_cpu_clock`, state: payload.cpu_clock, attributes: { unit_of_measurement: '%', friendly_name: 'Max CPU Clock', } }),
-    }).catch( ( e ) => log( `Error: ${ e }` ) ).then( () => {} ) );
+    log( `Updating ${'cpu_clock'.padEnd( 18, ' ' )} ${ payload.cpu_clock.toFixed( 2 ).toString().padStart( 10, ' ' )}` );
+    p.push( postToHA( 'cpu_clock', { state: payload.cpu_clock, attributes: { unit_of_measurement: '%', friendly_name: 'Max CPU Clock' } } ) );
   }
   if ( payload.cpu_temp !== previousPayload.cpu_temp ) {
     previousPayload.cpu_temp = payload.cpu_temp;
-    log( `Updating ${'cpu_temp'.padEnd(18, ' ' ) } ${ payload.cpu_temp?.toString().padStart( 10, ' ')}` );
-    p.push( fetch( HA_URL +`sensor.${ MACHINE_NAME }_cpu_temp`, {
-      method: 'POST',
-      headers: headers,
-      body: JSON.stringify({ state: payload.cpu_temp, attributes: { unit_of_measurement: '°C', friendly_name: 'CPU Temp', } }),
-    }).catch( ( e ) => log( `Error: ${ e }` ) ).then( () => {} ) );
+    log( `Updating ${'cpu_temp'.padEnd( 18, ' ' )} ${ payload.cpu_temp?.toString().padStart( 10, ' ' )}` );
+    p.push( postToHA( 'cpu_temp', { state: payload.cpu_temp, attributes: { unit_of_measurement: '°C', friendly_name: 'CPU Temp' } } ) );
   }
   if ( payload.gpu_usage !== previousPayload.gpu_usage ) {
     previousPayload.gpu_usage = payload.gpu_usage;
-    log( `Updating ${'gpu_usage'.padEnd(18, ' ' ) } ${ payload.gpu_usage?.toString().padStart( 10, ' ')}` );
-    p.push( fetch( HA_URL +`sensor.${ MACHINE_NAME }_gpu_usage`, {
-      method: 'POST',
-      headers: headers,
-      body: JSON.stringify({ state: payload.gpu_usage, attributes: { unit_of_measurement: '%', friendly_name: 'GPU Usage', } }),
-    }).catch( ( e ) => log( `Error: ${ e }` ) ).then( () => {} ) );
+    log( `Updating ${'gpu_usage'.padEnd( 18, ' ' )} ${ payload.gpu_usage?.toString().padStart( 10, ' ' )}` );
+    p.push( postToHA( 'gpu_usage', { state: payload.gpu_usage, attributes: { unit_of_measurement: '%', friendly_name: 'GPU Usage' } } ) );
   }
   if ( payload.gpu_temp !== previousPayload.gpu_temp ) {
     previousPayload.gpu_temp = payload.gpu_temp;
-    log( `Updating ${'gpu_temp'.padEnd(18, ' ' ) } ${ payload.gpu_temp?.toString().padStart( 10, ' ')}` );
-    p.push( fetch( HA_URL +`sensor.${ MACHINE_NAME }_gpu_temp`, {
-      method: 'POST',
-      headers: headers,
-      body: JSON.stringify({ state: payload.gpu_temp, attributes: { unit_of_measurement: '°C', friendly_name: 'GPU Temp', } }),
-    }).catch( ( e ) => log( `Error: ${ e }` ) ).then( () => {} ) );
+    log( `Updating ${'gpu_temp'.padEnd( 18, ' ' )} ${ payload.gpu_temp?.toString().padStart( 10, ' ' )}` );
+    p.push( postToHA( 'gpu_temp', { state: payload.gpu_temp, attributes: { unit_of_measurement: '°C', friendly_name: 'GPU Temp' } } ) );
   }
   if ( payload.ram_usage !== previousPayload.ram_usage ) {
     previousPayload.ram_usage = payload.ram_usage;
-    log( `Updating ${'ram_usage'.padEnd(18, ' ' ) } ${ payload.ram_usage?.toString().padStart( 10, ' ')}` );
-    p.push( fetch( HA_URL +`sensor.${ MACHINE_NAME }_ram_usage`, {
-      method: 'POST',
-      headers: headers,
-      body: JSON.stringify({ state: payload.ram_usage, attributes: { unit_of_measurement: '%', friendly_name: 'RAM Usage', } }),
-    }).catch( ( e ) => log( `Error: ${ e }` ) ).then( () => {} ) );
+    log( `Updating ${'ram_usage'.padEnd( 18, ' ' )} ${ payload.ram_usage?.toString().padStart( 10, ' ' )}` );
+    p.push( postToHA( 'ram_usage', { state: payload.ram_usage, attributes: { unit_of_measurement: '%', friendly_name: 'RAM Usage' } } ) );
   }
   if ( payload.power_state !== previousPayload.power_state ) {
     previousPayload.power_state = payload.power_state;
-    log( `Updating ${'power_state'.padEnd(18, ' ' ) } ${ payload.power_state?.toString().padStart( 10, ' ')}` );
-    p.push( fetch( HA_URL +`sensor.${ MACHINE_NAME }_power_state`, {
-      method: 'POST',
-      headers: headers,
-      body: JSON.stringify({ state: payload.power_state, attributes: { friendly_name: 'Power State', } }),
-    }).catch( ( e ) => log( `Error: ${ e }` ) ).then( () => {} ) );
+    log( `Updating ${'power_state'.padEnd( 18, ' ' )} ${ payload.power_state?.toString().padStart( 10, ' ' )}` );
+    p.push( postToHA( 'power_state', { state: payload.power_state, attributes: { friendly_name: 'Power State' } } ) );
   }
   if ( payload.battery_perc !== previousPayload.battery_perc ) {
     previousPayload.battery_perc = payload.battery_perc;
-    log( `Updating ${'battery_perc'.padEnd(18, ' ' ) } ${ payload.battery_perc?.toString().padStart( 10, ' ')}` );
-    p.push( fetch( HA_URL +`sensor.${ MACHINE_NAME }_battery_perc`, {
-      method: 'POST',
-      headers: headers,
-      body: JSON.stringify({ state: payload.battery_perc, attributes: { unit_of_measurement: '%', friendly_name: 'Battery Percentage', } }),
-    }).catch( ( e ) => log( `Error: ${ e }` ) ).then( () => {} ) );
+    log( `Updating ${'battery_perc'.padEnd( 18, ' ' )} ${ payload.battery_perc?.toString().padStart( 10, ' ' )}` );
+    p.push( postToHA( 'battery_perc', { state: payload.battery_perc, attributes: { unit_of_measurement: '%', friendly_name: 'Battery Percentage' } } ) );
   }
   if ( payload.battery_volt !== previousPayload.battery_volt ) {
     previousPayload.battery_volt = payload.battery_volt;
-    log( `Updating ${'battery_volt'.padEnd(18, ' ' ) } ${ payload.battery_volt?.toString().padStart( 10, ' ')}` );
-    p.push( fetch( HA_URL +`sensor.${ MACHINE_NAME }_battery_volt`, {
-      method: 'POST',
-      headers: headers,
-      body: JSON.stringify({ state: payload.battery_volt, attributes: { unit_of_measurement: 'V', friendly_name: 'Battery Voltage', } }),
-    }).catch( ( e ) => log( `Error: ${ e }` ) ).then( () => {} ) );
+    log( `Updating ${'battery_volt'.padEnd( 18, ' ' )} ${ payload.battery_volt?.toString().padStart( 10, ' ' )}` );
+    p.push( postToHA( 'battery_volt', { state: payload.battery_volt, attributes: { unit_of_measurement: 'V', friendly_name: 'Battery Voltage' } } ) );
   }
-
 
   if ( payload.disk_activity !== previousPayload.disk_activity ) {
     previousPayload.disk_activity = payload.disk_activity;
-    log( `Updating ${'disk_activity'.padEnd( 18, ' ' )} ${ payload.disk_activity?.toString().padStart( 10, ' ' ) }` );
-    p.push( fetch( HA_URL +`sensor.${ MACHINE_NAME }_disk_activity`, {
-      method: 'POST',
-      headers: headers,
-      body: JSON.stringify( { state: payload.disk_activity, attributes: { unit_of_measurement: '%', friendly_name: 'Disk Activity', } } ),
-    } ).catch( ( e ) => log( `Error: ${ e }` ) ).then( () => { } ) );
+    log( `Updating ${'disk_activity'.padEnd( 18, ' ' )} ${ payload.disk_activity?.toString().padStart( 10, ' ' )}` );
+    p.push( postToHA( 'disk_activity', { state: payload.disk_activity, attributes: { unit_of_measurement: '%', friendly_name: 'Disk Activity' } } ) );
   }
-
   if ( payload.disk_write_speed !== previousPayload.disk_write_speed ) {
     previousPayload.disk_write_speed = payload.disk_write_speed;
-    log( `Updating ${'disk_write_speed'.padEnd( 18, ' ' )} ${ payload.disk_write_speed?.toString().padStart( 10, ' ' ) }` );
-    p.push( fetch( HA_URL +`sensor.${ MACHINE_NAME }_disk_write_speed`, {
-      method: 'POST',
-      headers: headers,
-      body: JSON.stringify( { state: payload.disk_write_speed, attributes: { unit_of_measurement: 'MB/s', friendly_name: 'Disk Write Speed', } } ),
-    } ).catch( ( e ) => log( `Error: ${ e }` ) ).then( () => { } ) );
+    log( `Updating ${'disk_write_speed'.padEnd( 18, ' ' )} ${ payload.disk_write_speed?.toString().padStart( 10, ' ' )}` );
+    p.push( postToHA( 'disk_write_speed', { state: payload.disk_write_speed, attributes: { unit_of_measurement: 'MB/s', friendly_name: 'Disk Write Speed' } } ) );
   }
-
   if ( payload.disk_read_speed !== previousPayload.disk_read_speed ) {
     previousPayload.disk_read_speed = payload.disk_read_speed;
-    log( `Updating ${'disk_read_speed'.padEnd( 18, ' ' )} ${ payload.disk_read_speed?.toString().padStart( 10, ' ' ) }` );
-    p.push( fetch( HA_URL +`sensor.${ MACHINE_NAME }_disk_read_speed`, {
-      method: 'POST',
-      headers: headers,
-      body: JSON.stringify( { state: payload.disk_read_speed, attributes: { unit_of_measurement: 'MB/s', friendly_name: 'Disk Read Speed', } } ),
-    } ).catch( ( e ) => log( `Error: ${ e }` ) ).then( () => { } ) );
+    log( `Updating ${'disk_read_speed'.padEnd( 18, ' ' )} ${ payload.disk_read_speed?.toString().padStart( 10, ' ' )}` );
+    p.push( postToHA( 'disk_read_speed', { state: payload.disk_read_speed, attributes: { unit_of_measurement: 'MB/s', friendly_name: 'Disk Read Speed' } } ) );
   }
-
   if ( payload.connected !== previousPayload.connected ) {
     previousPayload.connected = payload.connected;
-    log( `Updating ${'connection_status'.padEnd(18, ' ' ) } ${ payload.connected?.toString().padStart( 10, ' ')}` );
-    p.push( fetch( HA_URL +`sensor.${ MACHINE_NAME }_connected`, {
-      method: 'POST',
-      headers: headers,
-      body: JSON.stringify({ state: payload.connected, attributes: { friendly_name: 'BLA Nate T1D3L Connected', } }),
-    }).catch( ( e ) => log( `Error: ${ e }` ) ).then( () => {} ) );
+    log( `Updating ${'connection_status'.padEnd( 18, ' ' )} ${ payload.connected?.toString().padStart( 10, ' ' )}` );
+    p.push( postToHA( 'connected', { state: payload.connected, attributes: { friendly_name: 'BLA Nate T1D3L Connected' } } ) );
   }
 
   await Promise.all( p );
@@ -878,59 +871,15 @@ async function shutdown() {
 
   const p: Promise<any>[] = [];
 
-  p.push( fetch( HA_URL +`sensor.${ MACHINE_NAME }_cpu_usage`, {
-    method: 'POST',
-    headers: headers,
-    body: JSON.stringify({ state: 0, attributes: { unit_of_measurement: '%', friendly_name: 'CPU Usage' } }),
-  }).catch( () => {} ) );
-
-  p.push( fetch( HA_URL +`sensor.${ MACHINE_NAME }_cpu_temp`, {
-    method: 'POST',
-    headers: headers,
-    body: JSON.stringify({ state: 0, attributes: { unit_of_measurement: '°C', friendly_name: 'CPU Temp' } }),
-  }).catch( () => {} ) );
-
-  p.push( fetch( HA_URL +`sensor.${ MACHINE_NAME }_gpu_usage`, {
-    method: 'POST',
-    headers: headers,
-    body: JSON.stringify({ state: 0, attributes: { unit_of_measurement: '%', friendly_name: 'GPU Usage' } }),
-  }).catch( () => {} ) );
-
-  p.push( fetch( HA_URL +`sensor.${ MACHINE_NAME }_gpu_temp`, {
-    method: 'POST',
-    headers: headers,
-    body: JSON.stringify({ state: 0, attributes: { unit_of_measurement: '°C', friendly_name: 'GPU Temp' } }),
-  }).catch( () => {} ) );
-
-  p.push( fetch( HA_URL +`sensor.${ MACHINE_NAME }_ram_usage`, {
-    method: 'POST',
-    headers: headers,
-    body: JSON.stringify({ state: 0, attributes: { unit_of_measurement: '%', friendly_name: 'RAM Usage' } }),
-  }).catch( () => {} ) );
-
-  p.push( fetch( HA_URL +`sensor.${ MACHINE_NAME }_disk_activity`, {
-    method: 'POST',
-    headers: headers,
-    body: JSON.stringify({ state: 0, attributes: { unit_of_measurement: '%', friendly_name: 'Disk Activity' } }),
-  }).catch( () => {} ) );
-
-  p.push( fetch( HA_URL +`sensor.${ MACHINE_NAME }_disk_write_speed`, {
-    method: 'POST',
-    headers: headers,
-    body: JSON.stringify({ state: 0, attributes: { unit_of_measurement: 'MB/s', friendly_name: 'Disk Write Speed' } }),
-  }).catch( () => {} ) );
-
-  p.push( fetch( HA_URL +`sensor.${ MACHINE_NAME }_disk_read_speed`, {
-    method: 'POST',
-    headers: headers,
-    body: JSON.stringify({ state: 0, attributes: { unit_of_measurement: 'MB/s', friendly_name: 'Disk Read Speed' } }),
-  }).catch( () => {} ) );
-
-  p.push( fetch( HA_URL +`sensor.${ MACHINE_NAME }_connected`, {
-    method: 'POST',
-    headers: headers,
-    body: JSON.stringify({ state: 0, attributes: { friendly_name: 'BLA Nate T1D3L Connected' } }),
-  }).catch( () => {} ) );
+  p.push( postToHA( 'cpu_usage', { state: 0, attributes: { unit_of_measurement: '%', friendly_name: 'CPU Usage' } } ) );
+  p.push( postToHA( 'cpu_temp', { state: 0, attributes: { unit_of_measurement: '°C', friendly_name: 'CPU Temp' } } ) );
+  p.push( postToHA( 'gpu_usage', { state: 0, attributes: { unit_of_measurement: '%', friendly_name: 'GPU Usage' } } ) );
+  p.push( postToHA( 'gpu_temp', { state: 0, attributes: { unit_of_measurement: '°C', friendly_name: 'GPU Temp' } } ) );
+  p.push( postToHA( 'ram_usage', { state: 0, attributes: { unit_of_measurement: '%', friendly_name: 'RAM Usage' } } ) );
+  p.push( postToHA( 'disk_activity', { state: 0, attributes: { unit_of_measurement: '%', friendly_name: 'Disk Activity' } } ) );
+  p.push( postToHA( 'disk_write_speed', { state: 0, attributes: { unit_of_measurement: 'MB/s', friendly_name: 'Disk Write Speed' } } ) );
+  p.push( postToHA( 'disk_read_speed', { state: 0, attributes: { unit_of_measurement: 'MB/s', friendly_name: 'Disk Read Speed' } } ) );
+  p.push( postToHA( 'connected', { state: 0, attributes: { friendly_name: 'BLA Nate T1D3L Connected' } } ) );
 
   if ( client ) {
     client.end();
@@ -953,6 +902,8 @@ if ( require.main === module ) { ( async () => {
   if ( !daemonMode ) {
     createTUI();
   }
+
+  await checkHAConnectivity();
 
   process.on( 'SIGINT', async () => {
     await shutdown();
