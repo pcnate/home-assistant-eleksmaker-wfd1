@@ -1,3 +1,10 @@
+# [1.0.0-rc.6](https://github.com/pcnate/home-assistant-eleksmaker-wfd1/compare/v1.0.0-rc.5...v1.0.0-rc.6) (2026-04-11)
+
+
+### Features
+
+* Add code signing script and release steps ([9e1fb32](https://github.com/pcnate/home-assistant-eleksmaker-wfd1/commit/9e1fb3260ea9b67ab0db492fcce9e91d80bf2efa))
+
 # [1.0.0-rc.5](https://github.com/pcnate/home-assistant-eleksmaker-wfd1/compare/v1.0.0-rc.4...v1.0.0-rc.5) (2026-04-11)
 
 
