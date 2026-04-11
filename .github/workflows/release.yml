@@ -11,17 +11,17 @@ permissions:
 
 jobs:
   release:
-    name: Release
+    name: Generate Release
     runs-on: ubuntu-latest
     outputs:
-      new_release_published: ${{ steps.semantic.outputs.new_release_published }}
-      new_release_version: ${{ steps.semantic.outputs.new_release_version }}
+      new-version: ${{ steps.release.outputs.new-version }}
+      new-version-created: ${{ steps.release.outputs.new-version-created }}
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout Code
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          persist-credentials: false
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -40,43 +40,64 @@ jobs:
           mkdir -p dist
           docker run --rm -v ${{ github.workspace }}/dist:/host eleks-rust cp /out/eleks-monitor.exe /out/eleks-tray.exe /host/
 
-      - name: Semantic Release
-        id: semantic
+      - name: Get Current Version
+        id: current-version
+        run: |
+          CURRENT=$(node -p "require('./package.json').version")
+          echo "version=$CURRENT" >> $GITHUB_OUTPUT
+          echo "Current version: $CURRENT"
+
+      - name: Run Semantic Release
+        id: release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npx semantic-release
+        run: |
+          npx semantic-release 2>&1 | tee release.log
+
+          NEW_VERSION=$(node -p "require('./package.json').version")
+          echo "new-version=$NEW_VERSION" >> $GITHUB_OUTPUT
+
+          if [ "${{ steps.current-version.outputs.version }}" != "$NEW_VERSION" ]; then
+            echo "new-version-created=true" >> $GITHUB_OUTPUT
+            echo "New version created: $NEW_VERSION"
+          else
+            echo "new-version-created=false" >> $GITHUB_OUTPUT
+            echo "No new version created"
+          fi
 
       - name: Upload binaries
-        if: steps.semantic.outputs.new_release_published == 'true'
+        if: steps.release.outputs.new-version-created == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: binaries
           path: dist/*.exe
 
-      - name: Summary
+      - name: Release Summary
         if: always()
         run: |
-          echo "## Release" >> $GITHUB_STEP_SUMMARY
-          if [ "${{ steps.semantic.outputs.new_release_published }}" == "true" ]; then
-            echo "**Version:** \`${{ steps.semantic.outputs.new_release_version }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "## Release Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- Previous version: ${{ steps.current-version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "- New version: ${{ steps.release.outputs.new-version }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Release created: ${{ steps.release.outputs.new-version-created }}" >> $GITHUB_STEP_SUMMARY
+          if [ -f dist/eleks-monitor.exe ]; then
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "| Binary | Size |" >> $GITHUB_STEP_SUMMARY
             echo "|--------|------|" >> $GITHUB_STEP_SUMMARY
             for f in dist/*.exe; do
               echo "| $(basename $f) | $(numfmt --to=iec $(stat -c%s $f)) |" >> $GITHUB_STEP_SUMMARY
             done
-          else
-            echo "No release created." >> $GITHUB_STEP_SUMMARY
           fi
 
   installer:
     name: Build Installer
     needs: release
-    if: needs.release.outputs.new_release_published == 'true'
+    if: needs.release.outputs.new-version-created == 'true'
     runs-on: windows-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout Code
+        uses: actions/checkout@v4
 
       - name: Download binaries
         uses: actions/download-artifact@v4
@@ -91,12 +112,13 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release upload v${{ needs.release.outputs.new_release_version }} dist/EleksWFD-Monitor-Setup.exe#"EleksWFD Installer"
+          gh release upload v${{ needs.release.outputs.new-version }} dist/EleksWFD-Monitor-Setup.exe#"EleksWFD Installer"
 
-      - name: Summary
+      - name: Installer Summary
         run: |
           $size = (Get-Item dist/EleksWFD-Monitor-Setup.exe).Length
           $sizeMB = [math]::Round($size / 1MB, 1)
-          echo "## Installer" >> $env:GITHUB_STEP_SUMMARY
-          echo "**Version:** ``${{ needs.release.outputs.new_release_version }}``" >> $env:GITHUB_STEP_SUMMARY
-          echo "**Size:** ${sizeMB}MB" >> $env:GITHUB_STEP_SUMMARY
+          echo "## Installer Summary" >> $env:GITHUB_STEP_SUMMARY
+          echo "" >> $env:GITHUB_STEP_SUMMARY
+          echo "- Version: ${{ needs.release.outputs.new-version }}" >> $env:GITHUB_STEP_SUMMARY
+          echo "- Size: ${sizeMB}MB" >> $env:GITHUB_STEP_SUMMARY
