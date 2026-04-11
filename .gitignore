@@ -12,4 +12,5 @@ env.example
 logs/
 run.log
 stop.trigger
+*.pfx
 target/
