@@ -1,6 +1,6 @@
 {
   "name": "eleks",
-  "version": "1.0.0-rc.2",
+  "version": "1.0.0-rc.3",
   "description": "AIDA64 System Monitor -> Home Assistant",
   "author": "Nathan Baker <pcnate@gmail.com>",
   "license": "MIT",
