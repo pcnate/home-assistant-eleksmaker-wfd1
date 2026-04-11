@@ -1,14 +1,13 @@
 use reqwest::Client;
 use serde_json::json;
 
-use crate::config::Config;
 use crate::logging::log;
 
 
 /// Build a reqwest client with the HA auth header baked in.
-pub fn build_client( config: &Config ) -> Client {
+pub fn build_client( ha_token: &str ) -> Client {
     let mut headers = reqwest::header::HeaderMap::new();
-    headers.insert( "Authorization", format!( "Bearer {}", config.ha_token ).parse().unwrap() );
+    headers.insert( "Authorization", format!( "Bearer {}", ha_token ).parse().unwrap() );
     headers.insert( "Content-Type", "application/json".parse().unwrap() );
 
     Client::builder()
@@ -23,13 +22,14 @@ pub fn build_client( config: &Config ) -> Client {
 /// Returns true on success.
 pub async fn post_to_ha(
     client: &Client,
-    config: &Config,
+    ha_url: &str,
+    machine_name: &str,
     sensor_name: &str,
     state: serde_json::Value,
     unit: Option<&str>,
     friendly_name: &str,
 ) -> bool {
-    let url = format!( "{}sensor.{}_{}", config.ha_url, config.machine_name, sensor_name );
+    let url = format!( "{}sensor.{}_{}", ha_url, machine_name, sensor_name );
 
     let mut attributes = json!( { "friendly_name": friendly_name } );
     if let Some( u ) = unit {
@@ -56,8 +56,8 @@ pub async fn post_to_ha(
 
 
 /// GET a sensor state from Home Assistant. Returns the state string or None.
-pub async fn get_from_ha( client: &Client, config: &Config, sensor_name: &str ) -> Option<String> {
-    let url = format!( "{}sensor.{}_{}", config.ha_url, config.machine_name, sensor_name );
+pub async fn get_from_ha( client: &Client, ha_url: &str, machine_name: &str, sensor_name: &str ) -> Option<String> {
+    let url = format!( "{}sensor.{}_{}", ha_url, machine_name, sensor_name );
 
     match client.get( &url ).send().await {
         Ok( res ) if res.status().is_success() => {
@@ -73,16 +73,16 @@ pub async fn get_from_ha( client: &Client, config: &Config, sensor_name: &str ) 
 
 
 /// Test connectivity to Home Assistant at startup.
-pub async fn check_connectivity( client: &Client, config: &Config ) -> bool {
-    log( &format!( "Checking HA connectivity: {}", config.ha_url ) );
+pub async fn check_connectivity( client: &Client, ha_url: &str, machine_name: &str ) -> bool {
+    log( &format!( "Checking HA connectivity: {}", ha_url ) );
 
-    let url = format!( "{}sensor.{}_connected", config.ha_url, config.machine_name );
+    let url = format!( "{}sensor.{}_connected", ha_url, machine_name );
     match client.get( &url ).send().await {
         Ok( res ) => {
             let status = res.status().as_u16();
             if res.status().is_success() || status == 404 {
                 // 404 = entity doesn't exist yet, but HA is reachable
-                log( &format!( "HA connected: {} ({})", config.ha_url, status ) );
+                log( &format!( "HA connected: {} ({})", ha_url, status ) );
                 true
             } else if status == 401 {
                 log( &format!( "HA auth failed (401) -- check HA_TOKEN" ) );
@@ -94,7 +94,7 @@ pub async fn check_connectivity( client: &Client, config: &Config ) -> bool {
         }
         Err( e ) => {
             log( &format!( "HA unreachable: {}", e ) );
-            log( &format!( "  URL: {}", config.ha_url ) );
+            log( &format!( "  URL: {}", ha_url ) );
             false
         }
     }

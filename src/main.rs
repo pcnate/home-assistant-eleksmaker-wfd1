@@ -37,15 +37,18 @@ async fn main() {
     let config = Config::load();
 
     // Init logging
-    let log_path = PathBuf::from( "../run.log" );
-    init_logging( log_path, cli.daemon );
+    let log_dir = std::env::current_exe()
+        .ok()
+        .and_then( |p| p.parent().map( |d| d.join( "logs" ) ) )
+        .unwrap_or_else( || PathBuf::from( "logs" ) );
+    init_logging( log_dir, cli.daemon );
 
     log( &format!( "Machine: {}", config.machine_name ) );
     log( &format!( "HA URL:  {}", config.ha_url ) );
     log( &format!( "Mode:    {}", if cli.daemon { "daemon" } else { "TUI" } ) );
 
-    let client = build_client( &config );
-    check_connectivity( &client, &config ).await;
+    let client = build_client( &config.ha_token );
+    check_connectivity( &client, &config.ha_url, &config.machine_name ).await;
 
     // Init WMI COM library (must happen on the thread that uses it)
     let com = match COMLibrary::new() {
@@ -79,7 +82,7 @@ async fn run_daemon(
     let mut refresh_ms: u64 = 333;
 
     // Load refresh interval from HA, or push default
-    if let Some( val ) = get_from_ha( client, config, sensor_name ).await {
+    if let Some( val ) = get_from_ha( client, &config.ha_url, &config.machine_name, sensor_name ).await {
         if let Ok( ms ) = val.parse::<u64>() {
             if ( 100..=10000 ).contains( &ms ) {
                 refresh_ms = ms;
@@ -87,7 +90,7 @@ async fn run_daemon(
             }
         }
     } else {
-        post_to_ha( client, config, sensor_name, serde_json::json!( refresh_ms ), Some( "ms" ), "Refresh Interval" ).await;
+        post_to_ha( client, &config.ha_url, &config.machine_name, sensor_name, serde_json::json!( refresh_ms ), Some( "ms" ), "Refresh Interval" ).await;
         log( &format!( "Created refresh interval in HA: {}ms", refresh_ms ) );
     }
 
@@ -117,7 +120,7 @@ async fn run_daemon(
                 // Check HA for refresh interval changes every 5s
                 if last_ha_settings_check.elapsed().as_secs() >= 5 {
                     last_ha_settings_check = std::time::Instant::now();
-                    if let Some( val ) = get_from_ha( client, config, sensor_name ).await {
+                    if let Some( val ) = get_from_ha( client, &config.ha_url, &config.machine_name, sensor_name ).await {
                         if let Ok( ms ) = val.parse::<u64>() {
                             if ( 100..=10000 ).contains( &ms ) && ms != refresh_ms {
                                 refresh_ms = ms;
@@ -155,7 +158,7 @@ async fn run_tui(
 
     // Load refresh interval from HA, or push default if it doesn't exist
     let sensor_name = "refresh_interval";
-    if let Some( val ) = get_from_ha( client, config, sensor_name ).await {
+    if let Some( val ) = get_from_ha( client, &config.ha_url, &config.machine_name, sensor_name ).await {
         if let Ok( ms ) = val.parse::<u64>() {
             if ( 100..=10000 ).contains( &ms ) {
                 app.refresh_interval_ms = ms;
@@ -163,7 +166,7 @@ async fn run_tui(
             }
         }
     } else {
-        post_to_ha( client, config, sensor_name, serde_json::json!( app.refresh_interval_ms ), Some( "ms" ), "Refresh Interval" ).await;
+        post_to_ha( client, &config.ha_url, &config.machine_name, sensor_name, serde_json::json!( app.refresh_interval_ms ), Some( "ms" ), "Refresh Interval" ).await;
         log( &format!( "Created refresh interval in HA: {}ms", app.refresh_interval_ms ) );
     }
 
@@ -185,7 +188,7 @@ async fn run_tui(
         // If user changed interval via settings, push to HA
         if app.refresh_interval_ms != prev_interval {
             log( &format!( "Refresh interval changed to {}ms", app.refresh_interval_ms ) );
-            post_to_ha( client, config, sensor_name, serde_json::json!( app.refresh_interval_ms ), Some( "ms" ), "Refresh Interval" ).await;
+            post_to_ha( client, &config.ha_url, &config.machine_name, sensor_name, serde_json::json!( app.refresh_interval_ms ), Some( "ms" ), "Refresh Interval" ).await;
         }
 
         // Small sleep to avoid busy-spinning between polls
@@ -210,7 +213,7 @@ async fn run_tui(
         // Check HA for external refresh interval changes (every 5s)
         if last_ha_settings_check.elapsed().as_secs() >= 5 {
             last_ha_settings_check = std::time::Instant::now();
-            if let Some( val ) = get_from_ha( client, config, sensor_name ).await {
+            if let Some( val ) = get_from_ha( client, &config.ha_url, &config.machine_name, sensor_name ).await {
                 if let Ok( ms ) = val.parse::<u64>() {
                     if ( 100..=10000 ).contains( &ms ) && ms != app.refresh_interval_ms {
                         app.refresh_interval_ms = ms;
@@ -257,7 +260,7 @@ async fn poll_and_push(
         }
     };
 
-    let payload = map_sensors( &rows, max_cpu_clock );
+    let payload = map_sensors( &rows, max_cpu_clock, &config.sensors );
 
     // Diff and push changed metrics
     let mut futures = Vec::new();
@@ -269,21 +272,13 @@ async fn poll_and_push(
 
             let client = client.clone();
             let ha_url = config.ha_url.clone();
-            let ha_token = config.ha_token.clone();
             let machine_name = config.machine_name.clone();
             let sensor_name = metric.name.to_string();
             let unit = metric.unit.map( |s| s.to_string() );
             let friendly = metric.friendly_name.to_string();
 
             futures.push( tokio::spawn( async move {
-                let cfg = Config {
-                    machine_name,
-                    ha_url,
-                    ha_token,
-                    elekswfd_addr: String::new(),
-                    elekswfd_port: 0,
-                };
-                post_to_ha( &client, &cfg, &sensor_name, value, unit.as_deref(), &friendly ).await
+                post_to_ha( &client, &ha_url, &machine_name, &sensor_name, value, unit.as_deref(), &friendly ).await
             } ) );
         }
     }
@@ -324,19 +319,14 @@ async fn shutdown(
         };
 
         let client = client.clone();
-        let cfg = Config {
-            machine_name: config.machine_name.clone(),
-            ha_url: config.ha_url.clone(),
-            ha_token: config.ha_token.clone(),
-            elekswfd_addr: String::new(),
-            elekswfd_port: 0,
-        };
+        let ha_url = config.ha_url.clone();
+        let machine_name = config.machine_name.clone();
         let name = metric.name.to_string();
         let unit = metric.unit.map( |s| s.to_string() );
         let friendly = metric.friendly_name.to_string();
 
         futures.push( tokio::spawn( async move {
-            post_to_ha( &client, &cfg, &name, zero, unit.as_deref(), &friendly ).await;
+            post_to_ha( &client, &ha_url, &machine_name, &name, zero, unit.as_deref(), &friendly ).await;
         } ) );
     }
 

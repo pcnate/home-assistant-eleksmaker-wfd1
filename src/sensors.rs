@@ -1,6 +1,8 @@
 use serde::Deserialize;
 use wmi::{ COMLibrary, WMIConnection };
 
+use crate::config::SensorIds;
+
 
 /// Raw sensor row from AIDA64 WMI.
 #[derive( Deserialize, Debug )]
@@ -93,36 +95,43 @@ pub fn read_wmi_sensors( com: &COMLibrary ) -> Option<Vec<Aida64SensorRow>> {
 }
 
 
-/// Map raw WMI rows into a SensorPayload.
-pub fn map_sensors( rows: &[Aida64SensorRow], max_cpu_clock: &mut f64 ) -> SensorPayload {
+/// Map raw WMI rows into a SensorPayload using configured sensor IDs.
+pub fn map_sensors( rows: &[Aida64SensorRow], max_cpu_clock: &mut f64, ids: &SensorIds ) -> SensorPayload {
     let mut p = SensorPayload::default();
 
     for row in rows {
         let val_f = row.Value.parse::<f64>().unwrap_or( 0.0 );
+        let id = row.ID.as_str();
 
-        match row.ID.as_str() {
-            "SCPUUTI" => p.cpu_usage = val_f.min( 100.0 ),
-            "TCPU"    => p.cpu_temp = val_f,
-            "SCPUCLK" => {
-                if val_f > *max_cpu_clock {
-                    *max_cpu_clock = val_f;
-                }
-                p.cpu_clock = ( ( val_f / *max_cpu_clock ) * 100.0 * 100.0 ).round() / 100.0;
+        if id == ids.cpu_usage {
+            p.cpu_usage = val_f.min( 100.0 );
+        } else if id == ids.cpu_temp {
+            p.cpu_temp = val_f;
+        } else if id == ids.cpu_clock {
+            if val_f > *max_cpu_clock {
+                *max_cpu_clock = val_f;
             }
-            "SGPU1UTI" => p.gpu_usage = val_f.min( 100.0 ),
-            "TGPU1" | "TGPU1HOT" => {
-                if val_f > p.gpu_temp {
-                    p.gpu_temp = val_f;
-                }
+            p.cpu_clock = ( ( val_f / *max_cpu_clock ) * 100.0 * 100.0 ).round() / 100.0;
+        } else if id == ids.gpu_usage {
+            p.gpu_usage = val_f.min( 100.0 );
+        } else if id == ids.gpu_temp || id == ids.gpu_temp_hot {
+            if val_f > p.gpu_temp {
+                p.gpu_temp = val_f;
             }
-            "SMEMUTI"      => p.ram_usage = val_f.min( 100.0 ),
-            "SDSK1ACT"     => p.disk_activity = val_f,
-            "SDSK1READSPD" => p.disk_read_speed = val_f,
-            "SDSK1WRITESPD" => p.disk_write_speed = val_f,
-            "SBATTLVL"     => p.battery_perc = val_f,
-            "VBATT"        => p.battery_volt = val_f,
-            "SPWRSTATE"    => p.power_state = row.Value.clone(),
-            _ => {}
+        } else if id == ids.ram_usage {
+            p.ram_usage = val_f.min( 100.0 );
+        } else if id == ids.disk_activity {
+            p.disk_activity = val_f;
+        } else if id == ids.disk_read_speed {
+            p.disk_read_speed = val_f;
+        } else if id == ids.disk_write_speed {
+            p.disk_write_speed = val_f;
+        } else if id == ids.battery_perc {
+            p.battery_perc = val_f;
+        } else if id == ids.battery_volt {
+            p.battery_volt = val_f;
+        } else if id == ids.power_state {
+            p.power_state = row.Value.clone();
         }
     }
 

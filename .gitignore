@@ -9,6 +9,7 @@ lib/
 sensors.json
 dist/
 env.example
+logs/
 run.log
 stop.trigger
 target/
