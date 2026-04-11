@@ -18,11 +18,16 @@
       }
     ],
     [
+      "@semantic-release/exec",
+      {
+        "prepareCmd": "npm version ${nextRelease.version} --no-git-tag-version --allow-same-version"
+      }
+    ],
+    [
       "@semantic-release/github",
       {
         "assets": [
-          { "path": "dist/eleks-monitor.exe", "label": "EleksWFD Monitor" },
-          { "path": "dist/eleks-tray.exe", "label": "EleksWFD Tray Launcher" }
+          { "path": "dist/EleksWFD-Monitor-Setup.exe", "label": "EleksWFD Installer" }
         ]
       }
     ],

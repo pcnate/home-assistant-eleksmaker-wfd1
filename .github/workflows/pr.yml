@@ -25,10 +25,18 @@ jobs:
 
       - name: Verify outputs
         run: |
-          ls -lh dist/eleks-monitor.exe
-          ls -lh dist/eleks-tray.exe
           test -f dist/eleks-monitor.exe
           test -f dist/eleks-tray.exe
+
+          MONITOR_SIZE=$(stat -c%s dist/eleks-monitor.exe)
+          TRAY_SIZE=$(stat -c%s dist/eleks-tray.exe)
+
+          echo "## Build Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Binary | Size |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|------|" >> $GITHUB_STEP_SUMMARY
+          echo "| eleks-monitor.exe | $(numfmt --to=iec $MONITOR_SIZE) |" >> $GITHUB_STEP_SUMMARY
+          echo "| eleks-tray.exe | $(numfmt --to=iec $TRAY_SIZE) |" >> $GITHUB_STEP_SUMMARY
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4

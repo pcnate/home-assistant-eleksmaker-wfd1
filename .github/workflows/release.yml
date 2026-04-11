@@ -25,21 +25,52 @@ jobs:
         with:
           node-version: 22
 
-      - name: Install dependencies
-        run: npm ci
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build Rust binaries
-        run: docker build -t eleks-rust -f build/Dockerfile .
-
-      - name: Extract binaries
+      - name: Install Inno Setup
         run: |
-          mkdir -p dist
-          docker run --rm -v ${{ github.workspace }}/dist:/host eleks-rust cp /out/eleks-monitor.exe /out/eleks-tray.exe /host/
+          sudo apt-get update
+          sudo apt-get install -y innosetup || {
+            sudo dpkg --add-architecture i386
+            sudo apt-get update
+            sudo apt-get install -y wine32 wine64
+            wget -q https://jrsoftware.org/download.php/is.exe -O /tmp/is.exe
+            wine /tmp/is.exe /VERYSILENT /SUPPRESSMSGBOXES /DIR=C:/innosetup
+            echo "$HOME/.wine/drive_c/innosetup" >> $GITHUB_PATH
+          }
+
+      - name: Install dependencies
+        run: npm ci
 
       - name: Semantic Release
+        id: release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npx semantic-release
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "## Release Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ -f dist/EleksWFD-Monitor-Setup.exe ]; then
+            INSTALLER_SIZE=$(stat -c%s dist/EleksWFD-Monitor-Setup.exe)
+            VERSION=$(node -e "console.log(require('./package.json').version)")
+
+            echo "**Version:** \`${VERSION}\`" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "| Artifact | Size |" >> $GITHUB_STEP_SUMMARY
+            echo "|----------|------|" >> $GITHUB_STEP_SUMMARY
+            echo "| EleksWFD-Monitor-Setup.exe | $(numfmt --to=iec $INSTALLER_SIZE) |" >> $GITHUB_STEP_SUMMARY
+
+            if [ -f dist/eleks-monitor.exe ] && [ -f dist/eleks-tray.exe ]; then
+              MONITOR_SIZE=$(stat -c%s dist/eleks-monitor.exe)
+              TRAY_SIZE=$(stat -c%s dist/eleks-tray.exe)
+              echo "| eleks-monitor.exe | $(numfmt --to=iec $MONITOR_SIZE) |" >> $GITHUB_STEP_SUMMARY
+              echo "| eleks-tray.exe | $(numfmt --to=iec $TRAY_SIZE) |" >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            echo "No release created (no relevant commits)." >> $GITHUB_STEP_SUMMARY
+          fi
