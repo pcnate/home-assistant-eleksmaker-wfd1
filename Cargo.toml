@@ -1,0 +1,33 @@
+[package]
+name = "eleks-monitor"
+version = "1.0.0"
+edition = "2021"
+
+[[bin]]
+name = "eleks-monitor"
+path = "src/main.rs"
+
+[[bin]]
+name = "eleks-tray"
+path = "src/tray.rs"
+
+[dependencies]
+dotenvy = "0.15"
+hostname = "0.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+reqwest = { version = "0.12", features = ["json"] }
+tokio = { version = "1", features = ["full"] }
+ratatui = "0.29"
+crossterm = "0.28"
+wmi = "0.14"
+clap = { version = "4", features = ["derive"] }
+chrono = "0.4"
+tray-icon = "0.19"
+winit = { version = "0.30", features = ["rwh_06"] }
+image = { version = "0.25", default-features = false, features = ["png"] }
+
+[profile.release]
+opt-level = 3
+lto = true
+strip = true
