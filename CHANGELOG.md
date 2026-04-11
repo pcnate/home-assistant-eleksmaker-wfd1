@@ -1,3 +1,10 @@
+# [1.0.0-rc.5](https://github.com/pcnate/home-assistant-eleksmaker-wfd1/compare/v1.0.0-rc.4...v1.0.0-rc.5) (2026-04-11)
+
+
+### Features
+
+* Add --shutdown mode for sending zeros ([b4160a9](https://github.com/pcnate/home-assistant-eleksmaker-wfd1/commit/b4160a93c3c4c797715d8483f40c0bbca2f27246))
+
 # [1.0.0-rc.4](https://github.com/pcnate/home-assistant-eleksmaker-wfd1/compare/v1.0.0-rc.3...v1.0.0-rc.4) (2026-04-11)
 
 
