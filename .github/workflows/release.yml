@@ -13,6 +13,9 @@ jobs:
   release:
     name: Release
     runs-on: ubuntu-latest
+    outputs:
+      new_release_published: ${{ steps.semantic.outputs.new_release_published }}
+      new_release_version: ${{ steps.semantic.outputs.new_release_version }}
 
     steps:
       - uses: actions/checkout@v4
@@ -25,52 +28,75 @@ jobs:
         with:
           node-version: 22
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Install Inno Setup
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y innosetup || {
-            sudo dpkg --add-architecture i386
-            sudo apt-get update
-            sudo apt-get install -y wine32 wine64
-            wget -q https://jrsoftware.org/download.php/is.exe -O /tmp/is.exe
-            wine /tmp/is.exe /VERYSILENT /SUPPRESSMSGBOXES /DIR=C:/innosetup
-            echo "$HOME/.wine/drive_c/innosetup" >> $GITHUB_PATH
-          }
-
       - name: Install dependencies
         run: npm ci
 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Rust binaries
+        run: |
+          docker build -t eleks-rust -f build/Dockerfile .
+          mkdir -p dist
+          docker run --rm -v ${{ github.workspace }}/dist:/host eleks-rust cp /out/eleks-monitor.exe /out/eleks-tray.exe /host/
+
       - name: Semantic Release
-        id: release
+        id: semantic
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npx semantic-release
 
+      - name: Upload binaries
+        if: steps.semantic.outputs.new_release_published == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: binaries
+          path: dist/*.exe
+
       - name: Summary
         if: always()
         run: |
-          echo "## Release Summary" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-
-          if [ -f dist/EleksWFD-Monitor-Setup.exe ]; then
-            INSTALLER_SIZE=$(stat -c%s dist/EleksWFD-Monitor-Setup.exe)
-            VERSION=$(node -e "console.log(require('./package.json').version)")
-
-            echo "**Version:** \`${VERSION}\`" >> $GITHUB_STEP_SUMMARY
+          echo "## Release" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ steps.semantic.outputs.new_release_published }}" == "true" ]; then
+            echo "**Version:** \`${{ steps.semantic.outputs.new_release_version }}\`" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
-            echo "| Artifact | Size |" >> $GITHUB_STEP_SUMMARY
-            echo "|----------|------|" >> $GITHUB_STEP_SUMMARY
-            echo "| EleksWFD-Monitor-Setup.exe | $(numfmt --to=iec $INSTALLER_SIZE) |" >> $GITHUB_STEP_SUMMARY
-
-            if [ -f dist/eleks-monitor.exe ] && [ -f dist/eleks-tray.exe ]; then
-              MONITOR_SIZE=$(stat -c%s dist/eleks-monitor.exe)
-              TRAY_SIZE=$(stat -c%s dist/eleks-tray.exe)
-              echo "| eleks-monitor.exe | $(numfmt --to=iec $MONITOR_SIZE) |" >> $GITHUB_STEP_SUMMARY
-              echo "| eleks-tray.exe | $(numfmt --to=iec $TRAY_SIZE) |" >> $GITHUB_STEP_SUMMARY
-            fi
+            echo "| Binary | Size |" >> $GITHUB_STEP_SUMMARY
+            echo "|--------|------|" >> $GITHUB_STEP_SUMMARY
+            for f in dist/*.exe; do
+              echo "| $(basename $f) | $(numfmt --to=iec $(stat -c%s $f)) |" >> $GITHUB_STEP_SUMMARY
+            done
           else
-            echo "No release created (no relevant commits)." >> $GITHUB_STEP_SUMMARY
+            echo "No release created." >> $GITHUB_STEP_SUMMARY
           fi
+
+  installer:
+    name: Build Installer
+    needs: release
+    if: needs.release.outputs.new_release_published == 'true'
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download binaries
+        uses: actions/download-artifact@v4
+        with:
+          name: binaries
+          path: dist
+
+      - name: Build installer
+        run: iscc build/setup.iss
+
+      - name: Upload installer to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload v${{ needs.release.outputs.new_release_version }} dist/EleksWFD-Monitor-Setup.exe#"EleksWFD Installer"
+
+      - name: Summary
+        run: |
+          $size = (Get-Item dist/EleksWFD-Monitor-Setup.exe).Length
+          $sizeMB = [math]::Round($size / 1MB, 1)
+          echo "## Installer" >> $env:GITHUB_STEP_SUMMARY
+          echo "**Version:** ``${{ needs.release.outputs.new_release_version }}``" >> $env:GITHUB_STEP_SUMMARY
+          echo "**Size:** ${sizeMB}MB" >> $env:GITHUB_STEP_SUMMARY
