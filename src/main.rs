@@ -23,6 +23,10 @@ struct Cli {
     /// Run in daemon mode (no TUI, stdout logging)
     #[arg( short, long )]
     daemon: bool,
+
+    /// Send zeros to HA and exit (used by tray launcher on disable)
+    #[arg( long )]
+    shutdown: bool,
 }
 
 
@@ -48,6 +52,14 @@ async fn main() {
     log( &format!( "Mode:    {}", if cli.daemon { "daemon" } else { "TUI" } ) );
 
     let client = build_client( &config.ha_token );
+
+    // Shutdown-only mode: send zeros and exit
+    if cli.shutdown {
+        let previous = SensorPayload::sentinel();
+        shutdown( &config, &client, &previous ).await;
+        return;
+    }
+
     check_connectivity( &client, &config.ha_url, &config.machine_name ).await;
 
     // Init WMI COM library (must happen on the thread that uses it)

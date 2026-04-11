@@ -176,7 +176,7 @@ impl App {
     }
 
 
-    /// Stop the running daemon.
+    /// Stop the running daemon and send zeros to HA.
     fn stop_daemon( &mut self ) {
         let mut lock = self.child.lock().unwrap();
         if let Some( ref mut c ) = *lock {
@@ -184,6 +184,16 @@ impl App {
             let _ = c.wait();
         }
         *lock = None;
+        drop( lock );
+
+        // Run the exe with --shutdown flag to send zeros
+        let exe = monitor_exe_path();
+        let cwd = exe.parent().unwrap_or_else( || std::path::Path::new( "." ) );
+        let _ = Command::new( &exe )
+            .arg( "--shutdown" )
+            .current_dir( cwd )
+            .creation_flags( CREATE_NO_WINDOW )
+            .status();
     }
 
 
