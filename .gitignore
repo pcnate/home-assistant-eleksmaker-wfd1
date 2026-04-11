@@ -7,3 +7,8 @@ lib/
 .env*
 !.env.example
 sensors.json
+dist/
+env.example
+run.log
+stop.trigger
+target/
