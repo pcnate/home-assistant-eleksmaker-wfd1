@@ -1,3 +1,10 @@
+# [1.0.0-rc.4](https://github.com/pcnate/home-assistant-eleksmaker-wfd1/compare/v1.0.0-rc.3...v1.0.0-rc.4) (2026-04-11)
+
+
+### Features
+
+* Add configurable AIDA sensors & log rotation ([0b03354](https://github.com/pcnate/home-assistant-eleksmaker-wfd1/commit/0b03354ae4299e924094a60df6b6f75094c43eea))
+
 # [1.0.0-rc.3](https://github.com/pcnate/home-assistant-eleksmaker-wfd1/compare/v1.0.0-rc.2...v1.0.0-rc.3) (2026-04-11)
 
 
