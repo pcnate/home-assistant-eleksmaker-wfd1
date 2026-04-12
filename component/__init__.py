@@ -1,6 +1,6 @@
 import esphome.codegen as cg
 import esphome.config_validation as cv
-from esphome.components import i2c, time, display, sensor, binary_sensor, switch
+from esphome.components import i2c, time, display, sensor, binary_sensor, switch, text_sensor
 from esphome.const import CONF_ID, CONF_I2C_ID, CONF_TIME_ID
 from esphome import core
 
@@ -13,6 +13,7 @@ EleksWfdComponent = elekswfd_ns.class_("EleksWFD", cg.Component, i2c.I2CDevice)
 SENSOR_ID = cv.use_id( sensor.Sensor )
 # BINARY_ID = cv.Any( cv.use_id( binary_sensor.BinarySensor ), cv.use_id( switch.Switch ) )
 BINARY_ID = cv.use_id( binary_sensor.BinarySensor )
+TEXT_SENSOR_ID = cv.use_id( text_sensor.TextSensor )
 
 # Configuration schema
 CONFIG_SCHEMA = cv.Schema({
@@ -54,6 +55,9 @@ CONFIG_SCHEMA = cv.Schema({
   cv.Optional("show_time"):       BINARY_ID,
   cv.Optional("show_mic"):        BINARY_ID,
   cv.Optional("show_logo"):       BINARY_ID,
+
+  cv.Optional("gif_data"):        TEXT_SENSOR_ID,
+  cv.Optional("logo_data"):       TEXT_SENSOR_ID,
 }).extend( cv.COMPONENT_SCHEMA )
 
 # Code generation function
@@ -143,5 +147,12 @@ async def to_code(config):
   if "show_logo" in config:
     sens = await cg.get_variable(config["show_logo"])
     cg.add(var.set_show_logo(sens))
-    
+
+  if "gif_data" in config:
+    sens = await cg.get_variable(config["gif_data"])
+    cg.add(var.set_gif_animation(sens))
+  if "logo_data" in config:
+    sens = await cg.get_variable(config["logo_data"])
+    cg.add(var.set_logo_animation(sens))
+
   await cg.register_component(var, config)

@@ -50,6 +50,8 @@ void EleksWFD::setup() {
   this->invert_ram_usage = false;
 
   last_time_ = esp_timer_get_time();
+  logo_last_frame_time_ = last_time_;
+  gif_last_frame_time_ = last_time_;
 
   // initialize all registers to 0
   for (int i = 0; i < 24*16; i++) {
@@ -332,7 +334,6 @@ void EleksWFD::updateExternals() {
 }
 
 void EleksWFD::animate() {
-  // first we determine how much time has passed since the last call
   int64_t now = esp_timer_get_time();
   int64_t time_passed = now - last_time_;
   last_time_ = now;
@@ -341,14 +342,30 @@ void EleksWFD::animate() {
     return;
   }
 
-  logo_frame_index++;
-  if ( logo_frame_index > logo_frames.size() ) {
-    logo_frame_index = 0;
+  // logo animation -- per-frame timing from encoded data
+  if ( logo_frame_total > 0 ) {
+    uint16_t logo_delay = logo_delays.size() > 0 ? logo_delays[ logo_frame_index ] : 250;
+    int64_t logo_elapsed = ( now - logo_last_frame_time_ ) / 1000;
+    if ( logo_elapsed >= logo_delay ) {
+      logo_frame_index++;
+      if ( logo_frame_index >= logo_frame_total ) {
+        logo_frame_index = 0;
+      }
+      logo_last_frame_time_ = now;
+    }
   }
 
-  gif_frame_index++;
-  if ( gif_frame_index > 64 ) {
-    gif_frame_index = 0;
+  // gif animation -- per-frame timing from encoded data
+  if ( gif_frame_total > 0 ) {
+    int64_t gif_elapsed = ( now - gif_last_frame_time_ ) / 1000; // microseconds to ms
+    uint16_t delay = gif_delays[ gif_frame_index ];
+    if ( gif_elapsed >= delay ) {
+      gif_frame_index++;
+      if ( gif_frame_index >= gif_frame_total ) {
+        gif_frame_index = 0;
+      }
+      gif_last_frame_time_ = now;
+    }
   }
 
   this->renderGIF();
@@ -356,49 +373,45 @@ void EleksWFD::animate() {
 }
 
 void EleksWFD::renderGIF() {
-  bool showGIF = true;
-  // if ( show_logo_ != nullptr ) {
-  //   showGIF = show_logo_->state;
-  // }
-  
-  // use the const array from esphome::elekswfd::display::matrix::CIRCLE and ROW_x to populate indexs
-  int indexs[61] = {};
+  // build the LED index map: rows 0-6 (7 LEDs each) then circle (12 LEDs)
+  const int *ROWS[] = {
+    esphome::elekswfd::display::matrix::ROW_0,
+    esphome::elekswfd::display::matrix::ROW_1,
+    esphome::elekswfd::display::matrix::ROW_2,
+    esphome::elekswfd::display::matrix::ROW_3,
+    esphome::elekswfd::display::matrix::ROW_4,
+    esphome::elekswfd::display::matrix::ROW_5,
+    esphome::elekswfd::display::matrix::ROW_6,
+  };
 
-  for (int i = 60; i > -1; i--) {
-    if ( i > 48 ) {
-      indexs[i] = esphome::elekswfd::display::matrix::CIRCLE[i-49];
-    } else
-    if ( i > 41 ) {
-      indexs[i] = esphome::elekswfd::display::matrix::ROW_6[i-42];
-    } else
-    if ( i > 34 ) {
-      indexs[i] = esphome::elekswfd::display::matrix::ROW_5[i-35];
-    } else
-    if ( i > 27 ) {
-      indexs[i] = esphome::elekswfd::display::matrix::ROW_4[i-28];
-    } else
-    if ( i > 20 ) {
-      indexs[i] = esphome::elekswfd::display::matrix::ROW_3[i-21];
-    } else
-    if ( i > 13 ) {
-      indexs[i] = esphome::elekswfd::display::matrix::ROW_2[i-14];
-    } else
-    if ( i > 6 ) {
-      indexs[i] = esphome::elekswfd::display::matrix::ROW_1[i-7];
-    } else {
-      indexs[i] = esphome::elekswfd::display::matrix::ROW_0[i];
+  if ( gif_frame_total == 0 ) {
+    // no frames loaded -- blank the matrix and circle
+    for ( int row = 0; row < 7; row++ ) {
+      for ( int col = 0; col < 7; col++ ) {
+        display_elements[ ROWS[ row ][ col ] ] = false;
+      }
+    }
+    for ( int i = 0; i < 12; i++ ) {
+      display_elements[ esphome::elekswfd::display::matrix::CIRCLE[ i ] ] = false;
+    }
+    return;
+  }
+
+  uint64_t frame = gif_frames[ gif_frame_index ];
+
+  // bits 0-48: 7 rows of 7 bits each
+  for ( int row = 0; row < 7; row++ ) {
+    uint8_t row_bits = ( frame >> ( row * 7 ) ) & 0x7F;
+    for ( int col = 0; col < 7; col++ ) {
+      display_elements[ ROWS[ row ][ col ] ] = ( row_bits >> col ) & 1;
     }
   }
 
-  for (int i = 0; i < 61; i++) {
-    if ( showGIF ) {
-      const bool bit = (i % 2) == (gif_frame_index % 2);
-      display_elements[ indexs[i] ] = bit;
-    } else {
-      display_elements[ indexs[i] ] = false;
-    }
+  // bits 49-60: 12 circle LEDs
+  uint16_t circle_bits = ( frame >> 49 ) & 0x0FFF;
+  for ( int i = 0; i < 12; i++ ) {
+    display_elements[ esphome::elekswfd::display::matrix::CIRCLE[ i ] ] = ( circle_bits >> i ) & 1;
   }
-
 }
 
 void EleksWFD::renderLogo() {
@@ -752,17 +765,19 @@ void EleksWFD::setRamUsage( uint8_t value ) {
 }
 
 void EleksWFD::setBarChart( bool bar, uint8_t _value ) {
-  if ( _value > 100 ) {
-    ESP_LOGW( TAG, "Invalid value %d/100, using 100/100", _value );
-    _value = 100;
+  // 12 LEDs representing 35°C to 90°C in 5°C steps
+  // LED 0 = 35°C, LED 1 = 40°C, ... LED 11 = 90°C
+  // LED 0 lights if temp > 35, all off below 35, capped at 100
+  if ( _value > 100 ) _value = 100;
+
+  int value = 0;
+  if ( _value > 35 ) {
+    value = ( _value - 35 ) / 5 + 1;
+    if ( value > 12 ) value = 12;
   }
 
-  // convert the _value range of 0-100 to 0-12 and round to nearest whole number
-  int value = static_cast<int>( round( _value / 8.333333 ) );
-
-  // loop through each element in the vertical bar and set it to true if it is less than the value
   for ( int i = 0; i < 12; i++ ) {
-    if ( !bar ) { // element 0 should be on when the value is 1+ and off when the value is 0
+    if ( !bar ) {
       display_elements[ esphome::elekswfd::display::vertical_bars::BAR_1[i] ] = i < value;
     } else {
       display_elements[ esphome::elekswfd::display::vertical_bars::BAR_2[i] ] = i < value;
@@ -927,42 +942,129 @@ void EleksWFD::readTimeFromRTC() {
 /**
  * @brief Update the time on the display
  */
-void EleksWFD::set_logo_animation(text_sensor::TextSensor *sens) {
+void EleksWFD::set_logo_animation( text_sensor::TextSensor *sens ) {
+  logo_animation_ = sens;
+
+  if ( sens == nullptr ) return;
+
+  // parse initial state if available
+  if ( sens->has_state() && sens->state.length() > 0 ) {
+    parseLogoData( sens->state );
+  }
+
+  // listen for live updates from HA
+  sens->add_on_state_callback( [this]( const std::string &value ) {
+    ESP_LOGI( TAG, "Logo data updated (%d chars)", value.length() );
+    parseLogoData( value );
+  });
+}
+
+
+/**
+ * Parse 5-char-per-frame encoded string into logo_frames and logo_delays.
+ *
+ * Each char minus 0x30 ('0') yields 6 bits. 5 chars = 30 bits per frame.
+ * Bit layout (packed LSB-first):
+ *   bits 0-12:  LOWER LEDs (13 bits)
+ *   bits 13-25: UPPER LEDs (13 bits)
+ *   bits 26-27: timing preset
+ *
+ * Timing presets: 00=50ms, 01=100ms, 10=250ms, 11=500ms
+ * Valid chars: '0' (0x30) through 'o' (0x6F)
+ */
+void EleksWFD::parseLogoData( const std::string &data ) {
+  static const uint16_t TIMING_PRESETS[] = { 50, 100, 200, 500 };
+
   logo_frames.clear();
-  
-  if ( sens == nullptr || !sens->has_state() ) {
-    logo_frames.push_back( 0x0FEFEFEF );
-    logo_frames.push_back( 0x0EFEFEFE );
-    logo_frames.push_back( 0x03FFFFFF );
-    logo_frames.push_back( 0x0FEFEFEF );
-    logo_frames.push_back( 0x0EFEFEFE );
-    logo_frames.push_back( 0x03FFFFFF );
-    logo_frame_total = logo_frames.size();
-    logo_frame_index = 0;
-    return;
-  }
+  logo_delays.clear();
+  logo_frame_index = 0;
+  logo_frame_total = 0;
+  logo_last_frame_time_ = esp_timer_get_time();
 
-  if ( sens->state.length() == 0 ) {
-    logo_frame_total = 0;
-    logo_frame_index = 0;
-    return;
-  }
+  if ( data.length() < 5 ) return;
 
-  const std::string &data = sens->state;
-  std::stringstream ss( data );
-  std::string frame_str;
+  int frame_count = data.length() / 5;
 
-  while ( std::getline( ss, frame_str, ',' ) ) {
-    if ( frame_str.empty() ) continue;
-    uint32_t frame = std::stoul( frame_str, nullptr, 16 );
-    logo_frames.push_back( frame & 0x00FFFFFF );
+  for ( int f = 0; f < frame_count; f++ ) {
+    int offset = f * 5;
+    uint32_t bits = 0;
+
+    for ( int i = 0; i < 5; i++ ) {
+      uint8_t val = static_cast<uint8_t>( data[ offset + i ] ) - 0x30;
+      bits |= static_cast<uint32_t>( val & 0x3F ) << ( i * 6 );
+    }
+
+    uint32_t frame = bits & 0x03FFFFFF; // bits 0-25: 26 LED bits
+    uint8_t timing_idx = ( bits >> 26 ) & 0x03;
+
+    logo_frames.push_back( frame );
+    logo_delays.push_back( TIMING_PRESETS[ timing_idx ] );
   }
 
   logo_frame_total = logo_frames.size();
-  logo_frame_index = 0;
+  ESP_LOGI( TAG, "Parsed %d logo frames", logo_frame_total );
 }
-void EleksWFD::set_gif_animation(text_sensor::TextSensor *sens) {
-  
+void EleksWFD::set_gif_animation( text_sensor::TextSensor *sens ) {
+  gif_animation_ = sens;
+
+  if ( sens == nullptr ) return;
+
+  // parse initial state if available
+  if ( sens->has_state() && sens->state.length() > 0 ) {
+    parseGifData( sens->state );
+  }
+
+  // listen for live updates from HA
+  sens->add_on_state_callback( [this]( const std::string &value ) {
+    ESP_LOGI( TAG, "GIF data updated (%d chars)", value.length() );
+    parseGifData( value );
+  });
+}
+
+
+/**
+ * Parse 11-char-per-frame encoded string into gif_frames and gif_delays.
+ *
+ * Each char minus 0x30 ('0') yields 6 bits. 11 chars = 66 bits per frame.
+ * Bit layout (packed LSB-first):
+ *   bits 0-48:  matrix rows 0-6 (7 bits each)
+ *   bits 49-60: circle LEDs (12 bits)
+ *   bits 61-62: timing preset
+ *
+ * Timing presets: 00=50ms, 01=100ms, 10=250ms, 11=500ms
+ * Valid chars: '0' (0x30) through 'o' (0x6F)
+ */
+void EleksWFD::parseGifData( const std::string &data ) {
+  static const uint16_t TIMING_PRESETS[] = { 50, 100, 200, 500 };
+
+  gif_frames.clear();
+  gif_delays.clear();
+  gif_frame_index = 0;
+  gif_frame_total = 0;
+  gif_last_frame_time_ = esp_timer_get_time();
+
+  if ( data.length() < 11 ) return;
+
+  int frame_count = data.length() / 11;
+
+  for ( int f = 0; f < frame_count; f++ ) {
+    int offset = f * 11;
+    uint64_t bits = 0;
+
+    for ( int i = 0; i < 11; i++ ) {
+      uint8_t val = static_cast<uint8_t>( data[ offset + i ] ) - 0x30;
+      bits |= static_cast<uint64_t>( val & 0x3F ) << ( i * 6 );
+    }
+
+    uint64_t frame = bits & 0x1FFFFFFFFFFFF; // bits 0-60: 61 LED bits
+    uint8_t timing_idx = ( bits >> 61 ) & 0x03;
+
+    gif_frames.push_back( frame );
+    gif_delays.push_back( TIMING_PRESETS[ timing_idx ] );
+  }
+
+  gif_frame_total = gif_frames.size();
+  ESP_LOGI( TAG, "Parsed %d GIF frames", gif_frame_total );
 }
 void EleksWFD::set_upper_text(text_sensor::TextSensor *sens) {
   

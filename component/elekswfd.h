@@ -121,10 +121,10 @@ namespace esphome {
       binary_sensor::BinarySensor *show_mic_{ nullptr };
       binary_sensor::BinarySensor *show_logo_{ nullptr };
 
-      // text_sensor::TextSensor *logo_animation_{ nullptr };
-      // text_sensor::TextSensor *gif_animation_{ nullptr };
-      // text_sensor::TextSensor *upper_text_{ nullptr };
-      // text_sensor::TextSensor *lower_text_{ nullptr };
+      text_sensor::TextSensor *logo_animation_{ nullptr };
+      text_sensor::TextSensor *gif_animation_{ nullptr };
+      text_sensor::TextSensor *upper_text_{ nullptr };
+      text_sensor::TextSensor *lower_text_{ nullptr };
 
       bool last_a_state_, last_b_state_, last_c_state_;
       bool a_press_registered_, b_press_registered_, c_press_registered_;
@@ -133,12 +133,16 @@ namespace esphome {
       int64_t last_time_;
 
       std::vector<uint32_t> logo_frames;
+      std::vector<uint16_t> logo_delays;
       int logo_frame_total{0};
       int logo_frame_index{0};
+      int64_t logo_last_frame_time_{0};
 
-      std::vector<uint32_t> gif_frames;
+      std::vector<uint64_t> gif_frames;
+      std::vector<uint16_t> gif_delays;
       int gif_frame_total{0};
       int gif_frame_index{0};
+      int64_t gif_last_frame_time_{0};
 
       char upper_text[64];
       char lower_text[64];
@@ -198,9 +202,23 @@ namespace esphome {
       void renderGIF();
 
       /**
+       * parse an 11-char-per-frame encoded string into gif_frames and gif_delays
+       *
+       * @param data the encoded animation string (6 bits per char, offset 0x30)
+       */
+      void parseGifData( const std::string &data );
+
+      /**
        * render the logo
        */
       void renderLogo();
+
+      /**
+       * parse a 5-char-per-frame encoded string into logo_frames and logo_delays
+       *
+       * @param data the encoded animation string (6 bits per char, offset 0x30)
+       */
+      void parseLogoData( const std::string &data );
 
       /**
        * calculated the hour, minute and second digits and call the write functions
