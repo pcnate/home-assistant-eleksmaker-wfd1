@@ -101,7 +101,7 @@ The monitor creates sensors in Home Assistant with the naming pattern `sensor.{M
 
 ## ESP32 Display Component
 
-The `component/` directory contains a custom ESPHome component for the EleksWFD LED clock. It subscribes to the above Home Assistant entities and renders them on a TM1680 24x16 LED matrix with:
+The `components/elekswfd/` directory contains a custom ESPHome component for the EleksWFD LED clock. It subscribes to the above Home Assistant entities and renders them on a TM1680 24x16 LED matrix with:
 
 - 7-segment clock display (HH:MM:SS)
 - 14-segment text display

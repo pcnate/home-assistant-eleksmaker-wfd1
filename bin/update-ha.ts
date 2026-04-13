@@ -116,40 +116,58 @@ async function postToHA( entityId: string, value: string, attrs: Record<string, 
 // 00=50ms, 01=100ms, 10=200ms, 11=500ms
 const TIMING = { FAST: 0, MEDIUM: 1, SLOW: 2, SLOWER: 3 } as const;
 
-// circle patterns: on-off-off rotating (4 LEDs lit out of 12)
+// CIRCLE LEDs: 12 LEDs surrounding the 7x7 matrix
+// on-off-off pattern, counter-clockwise (opposite to cross rotation)
 const CIRCLE_A = 0b001001001001; // LEDs 0,3,6,9
 const CIRCLE_B = 0b010010010010; // LEDs 1,4,7,10
 const CIRCLE_C = 0b100100100100; // LEDs 2,5,8,11
+// CCW order: A → C → B
+const CCW = [ CIRCLE_A, CIRCLE_C, CIRCLE_B ];
 
-// X pattern (bit 0 = leftmost column)
-const X_ROWS = [
-  0b1000001, // X.....X
-  0b0100010, // .X...X.
-  0b0010100, // ..X.X..
-  0b0001000, // ...X...
-  0b0010100, // ..X.X..
-  0b0100010, // .X...X.
-  0b1000001, // X.....X
-];
+/**
+ * Rasterize a line at angle theta (radians) through center (3,3) onto a 7x7 grid.
+ *
+ * @param rows - row array to draw into (mutated)
+ * @param theta - angle in radians from horizontal
+ */
+function drawLine( rows: number[], theta: number ): void {
+  const cx = 3, cy = 3;
+  const cosT = Math.cos( theta );
+  const sinT = Math.sin( theta );
 
-// + pattern
-const P_ROWS = [
-  0b0000000, // .......
-  0b0001000, // ...X...
-  0b0001000, // ...X...
-  0b0111110, // .XXXXX.
-  0b0001000, // ...X...
-  0b0001000, // ...X...
-  0b0000000, // .......
-];
+  // iterate along the line in small steps
+  for ( let t = -4; t <= 4; t += 0.25 ) {
+    const c = Math.round( cx + t * cosT );
+    const r = Math.round( cy + t * sinT );
+    if ( r >= 0 && r <= 6 && c >= 0 && c <= 6 ) {
+      rows[ r ] |= ( 1 << c );
+    }
+  }
+}
 
-// 6 frames: X/+ alternating with rotating circle
-const gifStr = encodeGifFrame( X_ROWS, CIRCLE_A, TIMING.SLOW )
-             + encodeGifFrame( P_ROWS, CIRCLE_B, TIMING.SLOW )
-             + encodeGifFrame( X_ROWS, CIRCLE_C, TIMING.SLOW )
-             + encodeGifFrame( P_ROWS, CIRCLE_A, TIMING.SLOW )
-             + encodeGifFrame( X_ROWS, CIRCLE_B, TIMING.SLOW )
-             + encodeGifFrame( P_ROWS, CIRCLE_C, TIMING.SLOW );
+
+/**
+ * Generate a rotating cross frame at the given angle.
+ * Two perpendicular lines through center.
+ *
+ * @param theta - angle in radians
+ * @returns 7 row values
+ */
+function crossFrame( theta: number ): number[] {
+  const rows = [ 0, 0, 0, 0, 0, 0, 0 ];
+  drawLine( rows, theta );
+  drawLine( rows, theta + Math.PI / 2 );
+  return rows;
+}
+
+// 7 unique frames over 90° (cross has 90° symmetry, loops 4x = 28 visual steps)
+const STEPS = 7;
+let gifStr = '';
+for ( let i = 0; i < STEPS; i++ ) {
+  const theta = ( i * Math.PI / 2 ) / STEPS;
+  const circle = CCW[ i % 3 ];
+  gifStr += encodeGifFrame( crossFrame( theta ), circle, TIMING.MEDIUM );
+}
 
 // logo: "ELEKSMAKER" letter-by-letter reveal at 200ms per frame
 // bits 0-12 = LOWER row, bits 13-25 = UPPER row (left to right)

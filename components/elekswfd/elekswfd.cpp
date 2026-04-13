@@ -1160,7 +1160,7 @@ void EleksWFD::parseGifData( const std::string &data ) {
       bits |= static_cast<uint64_t>( val & 0x3F ) << ( i * 6 );
     }
 
-    uint64_t frame = bits & 0x1FFFFFFFFFFFF; // bits 0-60: 61 LED bits
+    uint64_t frame = bits & 0x1FFFFFFFFFFFFFFFull; // bits 0-60: 61 LED bits
     uint8_t timing_idx = ( bits >> 61 ) & 0x03;
 
     gif_frames.push_back( frame );
