@@ -370,6 +370,7 @@ void EleksWFD::animate() {
 
   this->renderGIF();
   this->renderLogo();
+  this->renderUpperText();
 }
 
 void EleksWFD::renderGIF() {
@@ -447,6 +448,71 @@ void EleksWFD::renderLogo() {
     }
   }
 }
+
+void EleksWFD::renderUpperText() {
+  if ( ota_active_ ) return;
+  if ( upper_text_length_ == 0 ) return;
+
+  int64_t now = esp_timer_get_time();
+
+  // scrolling for text longer than 6 chars
+  if ( upper_text_length_ > 6 ) {
+    int64_t elapsed = ( now - upper_text_last_scroll_time_ ) / 1000;
+    if ( elapsed >= 300 ) {
+      upper_text_scroll_offset_++;
+      // wrap with a 3-space gap
+      if ( upper_text_scroll_offset_ >= upper_text_length_ + 3 ) {
+        upper_text_scroll_offset_ = 0;
+      }
+      upper_text_last_scroll_time_ = now;
+    }
+  }
+
+  for ( int i = 0; i < 6; i++ ) {
+    int idx = upper_text_scroll_offset_ + i;
+    char c;
+    if ( upper_text_length_ <= 6 ) {
+      // static: left-aligned, blank remaining
+      c = i < upper_text_length_ ? upper_text[ i ] : ' ';
+    } else {
+      // scrolling: wrap index with gap
+      int total = upper_text_length_ + 3;
+      idx = idx % total;
+      c = idx < upper_text_length_ ? upper_text[ idx ] : ' ';
+    }
+    writeUpperDigit( i + 1, c );
+  }
+}
+
+
+void EleksWFD::setOtaProgress( int pct ) {
+  if ( pct < 0 ) {
+    // OTA ended or errored -- resume normal text
+    ota_active_ = false;
+    return;
+  }
+
+  ota_active_ = true;
+
+  if ( pct > 100 ) pct = 100;
+
+  // "UPd" on digits 1-3
+  writeUpperDigit( 1, 'U' );
+  writeUpperDigit( 2, 'P' );
+  writeUpperDigit( 3, 'd' );
+
+  // percentage right-aligned on digits 4-6
+  if ( pct >= 100 ) {
+    writeUpperDigit( 4, '1' );
+    writeUpperDigit( 5, '0' );
+    writeUpperDigit( 6, '0' );
+  } else {
+    writeUpperDigit( 4, ' ' );
+    writeUpperDigit( 5, pct >= 10 ? static_cast<char>( ( pct / 10 ) + '0' ) : ' ' );
+    writeUpperDigit( 6, static_cast<char>( ( pct % 10 ) + '0' ) );
+  }
+}
+
 
 void EleksWFD::updateTime( int hour, int minute, int second ) {
   bool showClock = true;
@@ -694,8 +760,8 @@ void EleksWFD::writeUpperDigit( uint8_t digit, char value ) {
     return;
   }
 
-  // get the 7 segment value
-  uint8_t fourteen_seg = FourteenSegmentASCII[index];
+  // get the 14 segment value
+  uint16_t fourteen_seg = FourteenSegmentASCII[index];
 
   // map the bits in fourteen_seg to the correct segments
   display_elements[seg_a] = (fourteen_seg & 0b000000000000001) > 0;
@@ -1066,8 +1132,28 @@ void EleksWFD::parseGifData( const std::string &data ) {
   gif_frame_total = gif_frames.size();
   ESP_LOGI( TAG, "Parsed %d GIF frames", gif_frame_total );
 }
-void EleksWFD::set_upper_text(text_sensor::TextSensor *sens) {
-  
+void EleksWFD::set_upper_text( text_sensor::TextSensor *sens ) {
+  upper_text_ = sens;
+
+  if ( sens == nullptr ) return;
+
+  // parse initial state if available
+  if ( sens->has_state() && sens->state.length() > 0 ) {
+    const std::string &val = sens->state;
+    upper_text_length_ = val.length() > 63 ? 63 : val.length();
+    memcpy( upper_text, val.c_str(), upper_text_length_ );
+    upper_text[ upper_text_length_ ] = '\0';
+    upper_text_scroll_offset_ = 0;
+  }
+
+  // listen for live updates from HA
+  sens->add_on_state_callback( [this]( const std::string &value ) {
+    ESP_LOGI( TAG, "Upper text updated: %s", value.c_str() );
+    upper_text_length_ = value.length() > 63 ? 63 : value.length();
+    memcpy( upper_text, value.c_str(), upper_text_length_ );
+    upper_text[ upper_text_length_ ] = '\0';
+    upper_text_scroll_offset_ = 0;
+  });
 }
 void EleksWFD::set_lower_text(text_sensor::TextSensor *sens) {
   

@@ -78,6 +78,21 @@ namespace esphome {
       void set_upper_text(text_sensor::TextSensor *sens);
       void set_lower_text(text_sensor::TextSensor *sens);
 
+      /**
+       * display OTA progress on the upper digits, or end OTA mode
+       *
+       * @param pct 0-100 for progress, -1 to end OTA mode
+       */
+      void setOtaProgress( int pct );
+
+      /**
+       * write a 13 segment digit to the display
+       *
+       * @param digit the digit to write to (1-6) which corresponds to upper_digit_n
+       * @param value the value to write to the digit (typical 13 segment values)
+       */
+      void writeUpperDigit( uint8_t digit, char value );
+
       void setup() override;
       void loop() override;
 
@@ -145,6 +160,11 @@ namespace esphome {
       int64_t gif_last_frame_time_{0};
 
       char upper_text[64];
+      int upper_text_length_{0};
+      int upper_text_scroll_offset_{0};
+      int64_t upper_text_last_scroll_time_{0};
+      bool ota_active_{false};
+
       char lower_text[64];
 
       bool started = false;
@@ -202,6 +222,11 @@ namespace esphome {
       void renderGIF();
 
       /**
+       * render scrolling upper text to the 14-segment digits, skipped during OTA
+       */
+      void renderUpperText();
+
+      /**
        * parse an 11-char-per-frame encoded string into gif_frames and gif_delays
        *
        * @param data the encoded animation string (6 bits per char, offset 0x30)
@@ -242,14 +267,6 @@ namespace esphome {
        * @param value the value to write to the digit (typical 7 segment values)
        */
       void writeLowerDigit(uint8_t digit, char value);
-
-      /**
-       * write a 13 segment digit to the display
-       * 
-       * @param digit the digit to write to (1-6) which corresponds to upper_digit_n
-       * @param value the value to write to the digit (typical 13 segment values)
-       */
-      void writeUpperDigit( uint8_t digit, char value );
 
       /**
        * set day of week

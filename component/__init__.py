@@ -58,6 +58,7 @@ CONFIG_SCHEMA = cv.Schema({
 
   cv.Optional("gif_data"):        TEXT_SENSOR_ID,
   cv.Optional("logo_data"):       TEXT_SENSOR_ID,
+  cv.Optional("upper_text"):      TEXT_SENSOR_ID,
 }).extend( cv.COMPONENT_SCHEMA )
 
 # Code generation function
@@ -154,5 +155,8 @@ async def to_code(config):
   if "logo_data" in config:
     sens = await cg.get_variable(config["logo_data"])
     cg.add(var.set_logo_animation(sens))
+  if "upper_text" in config:
+    sens = await cg.get_variable(config["upper_text"])
+    cg.add(var.set_upper_text(sens))
 
   await cg.register_component(var, config)

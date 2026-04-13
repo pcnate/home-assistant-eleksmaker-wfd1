@@ -266,6 +266,14 @@ async function main() {
     max: 255,
   });
   console.log( 'Logo uploaded to input_text.eleksmaker_logo' );
+
+  const upperText = '1234';
+  await postToHA( 'input_text.eleksmaker_upper', upperText, {
+    icon: 'mdi:format-text',
+    min: 0,
+    max: 255,
+  });
+  console.log( `Upper text uploaded: "${ upperText }"` );
 }
 
 main().catch( ( err ) => {
