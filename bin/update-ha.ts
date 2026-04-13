@@ -121,8 +121,8 @@ const TIMING = { FAST: 0, MEDIUM: 1, SLOW: 2, SLOWER: 3 } as const;
 const CIRCLE_A = 0b001001001001; // LEDs 0,3,6,9
 const CIRCLE_B = 0b010010010010; // LEDs 1,4,7,10
 const CIRCLE_C = 0b100100100100; // LEDs 2,5,8,11
-// CCW order: A → C → B
-const CCW = [ CIRCLE_A, CIRCLE_C, CIRCLE_B ];
+// CW order: A → B → C
+const CW = [ CIRCLE_A, CIRCLE_B, CIRCLE_C ];
 
 /**
  * Rasterize a line at angle theta (radians) through center (3,3) onto a 7x7 grid.
@@ -165,13 +165,12 @@ const STEPS = 7;
 let gifStr = '';
 for ( let i = 0; i < STEPS; i++ ) {
   const theta = ( i * Math.PI / 2 ) / STEPS;
-  const circle = CCW[ i % 3 ];
+  const circle = CW[ i % 3 ];
   gifStr += encodeGifFrame( crossFrame( theta ), circle, TIMING.MEDIUM );
 }
 
-// logo: "ELEKSMAKER" letter-by-letter reveal at 200ms per frame
+// logo: 4 equal states across 51 frames (255 / 5), all at 500ms = 25.5s cycle
 // bits 0-12 = LOWER row, bits 13-25 = UPPER row (left to right)
-// each letter maps to ~2-3 LEDs across both rows
 const LETTERS: Record<string, number[]> = {
   E1: [ 0, 1, 13 ],
   L:  [ 2, 14 ],
@@ -186,83 +185,43 @@ const LETTERS: Record<string, number[]> = {
 };
 
 const letterOrder = [ 'E1', 'L', 'E2', 'K1', 'S', 'M', 'A', 'K2', 'E3', 'R' ];
+const ALL_ON = 0x03FFFFFF;
+const FRAMES_PER_STATE = 12; // 12 × 4 = 48, + 3 extra = 51 total
 
-// build progressive frames: each frame adds the next letter
 let logoStr = '';
+
+// state 1: slide in L→R (10 letter frames + 2 hold)
 let accumulated = 0;
 for ( const key of letterOrder ) {
-  for ( const bit of LETTERS[ key ] ) {
-    accumulated |= ( 1 << bit );
-  }
-  logoStr += encodeLogoFrame( accumulated, TIMING.SLOW ); // 200ms per letter
+  for ( const bit of LETTERS[ key ] ) accumulated |= ( 1 << bit );
+  logoStr += encodeLogoFrame( accumulated, TIMING.SLOWER );
 }
-// hold the full word, then fade into flickering idle
-const ALL_ON = accumulated; // all 26 LEDs
-
-/**
- * Turn off specific LED positions from the all-on state.
- *
- * @param leds - LED indices to turn off (0-25)
- * @returns 26-bit value with those LEDs off
- */
-function flicker( ...leds: number[] ): number {
-  let val = ALL_ON;
-  for ( const led of leds ) val &= ~( 1 << led );
-  return val;
+for ( let i = 0; i < FRAMES_PER_STATE - letterOrder.length; i++ ) {
+  logoStr += encodeLogoFrame( ALL_ON, TIMING.SLOWER );
 }
 
-logoStr += encodeLogoFrame( ALL_ON,            TIMING.SLOWER )  // hold 500ms
-         + encodeLogoFrame( ALL_ON,            TIMING.SLOWER )
-         + encodeLogoFrame( flicker( 3 ),      TIMING.FAST )    // 1 pixel off 50ms
-         + encodeLogoFrame( ALL_ON,            TIMING.SLOWER )
-         + encodeLogoFrame( ALL_ON,            TIMING.SLOWER )
-         + encodeLogoFrame( flicker( 17 ),     TIMING.FAST )
-         + encodeLogoFrame( ALL_ON,            TIMING.SLOWER )
-         + encodeLogoFrame( flicker( 8, 21 ),  TIMING.FAST )    // 2 pixels off 50ms
-         + encodeLogoFrame( ALL_ON,            TIMING.SLOWER )
-         + encodeLogoFrame( ALL_ON,            TIMING.SLOWER )
-         + encodeLogoFrame( ALL_ON,            TIMING.SLOWER )
-         + encodeLogoFrame( flicker( 14 ),     TIMING.FAST )
-         + encodeLogoFrame( ALL_ON,            TIMING.SLOWER )
-         + encodeLogoFrame( ALL_ON,            TIMING.SLOWER )
-         + encodeLogoFrame( flicker( 5, 22 ),  TIMING.FAST )
-         + encodeLogoFrame( ALL_ON,            TIMING.SLOWER )
-         + encodeLogoFrame( ALL_ON,            TIMING.SLOWER )
-         + encodeLogoFrame( flicker( 10 ),     TIMING.FAST )
-         + encodeLogoFrame( ALL_ON,            TIMING.SLOWER )
-         + encodeLogoFrame( ALL_ON,            TIMING.SLOWER )
-         + encodeLogoFrame( ALL_ON,            TIMING.SLOWER );
-
-/**
- * Turn on specific LED positions from a blank state.
- *
- * @param leds - LED indices to turn on (0-25)
- * @returns 26-bit value with only those LEDs on
- */
-function spark( ...leds: number[] ): number {
-  let val = 0;
-  for ( const led of leds ) val |= ( 1 << led );
-  return val;
+// state 2: hold on (13 frames to fill to 51)
+const holdOnFrames = 51 - ( FRAMES_PER_STATE * 3 + letterOrder.length );
+// actually let me compute: 51 total, state1=12, state3=12, state4=12 = 36, so state2 = 15
+// recalculate: states 1,3,4 = 12 each = 36, state 2 = 51-36 = 15
+for ( let i = 0; i < 15; i++ ) {
+  logoStr += encodeLogoFrame( ALL_ON, TIMING.SLOWER );
 }
 
-// hide: inverse of flicker -- mostly off with brief pixel sparks
-logoStr += encodeLogoFrame( 0,                 TIMING.SLOWER )
-         + encodeLogoFrame( spark( 3 ),        TIMING.FAST )
-         + encodeLogoFrame( 0,                 TIMING.SLOWER )
-         + encodeLogoFrame( 0,                 TIMING.SLOWER )
-         + encodeLogoFrame( spark( 17 ),       TIMING.FAST )
-         + encodeLogoFrame( 0,                 TIMING.SLOWER )
-         + encodeLogoFrame( spark( 8, 21 ),    TIMING.FAST )
-         + encodeLogoFrame( 0,                 TIMING.SLOWER )
-         + encodeLogoFrame( 0,                 TIMING.SLOWER )
-         + encodeLogoFrame( spark( 14 ),       TIMING.FAST )
-         + encodeLogoFrame( 0,                 TIMING.SLOWER )
-         + encodeLogoFrame( spark( 5, 22 ),    TIMING.FAST )
-         + encodeLogoFrame( 0,                 TIMING.SLOWER )
-         + encodeLogoFrame( 0,                 TIMING.SLOWER )
-         + encodeLogoFrame( spark( 10 ),       TIMING.FAST )
-         + encodeLogoFrame( 0,                 TIMING.SLOWER )
-         + encodeLogoFrame( 0,                 TIMING.SLOWER );
+// state 3: slide out L→R (10 letter frames + 2 hold off)
+let remaining = ALL_ON;
+for ( const key of letterOrder ) {
+  for ( const bit of LETTERS[ key ] ) remaining &= ~( 1 << bit );
+  logoStr += encodeLogoFrame( remaining, TIMING.SLOWER );
+}
+for ( let i = 0; i < FRAMES_PER_STATE - letterOrder.length; i++ ) {
+  logoStr += encodeLogoFrame( 0, TIMING.SLOWER );
+}
+
+// state 4: hold off (12 frames)
+for ( let i = 0; i < FRAMES_PER_STATE; i++ ) {
+  logoStr += encodeLogoFrame( 0, TIMING.SLOWER );
+}
 
 
 // ── main ───────────────────────────────────────────────────────────
@@ -300,6 +259,12 @@ async function main() {
     max: 255,
   });
   console.log( `Lower text uploaded: "${ lowerText || '(empty - clock mode)' }"` );
+
+  await postToHA( 'input_boolean.eleksmaker_logo_flicker', 'on', {
+    friendly_name: 'EleksMaker Logo Flicker',
+    icon: 'mdi:flash',
+  });
+  console.log( 'Logo flicker: on' );
 }
 
 main().catch( ( err ) => {

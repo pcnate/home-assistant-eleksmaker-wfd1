@@ -55,6 +55,7 @@ CONFIG_SCHEMA = cv.Schema({
   cv.Optional("show_time"):       BINARY_ID,
   cv.Optional("show_mic"):        BINARY_ID,
   cv.Optional("show_logo"):       BINARY_ID,
+  cv.Optional("logo_flicker"):    BINARY_ID,
 
   cv.Optional("gif_data"):        TEXT_SENSOR_ID,
   cv.Optional("logo_data"):       TEXT_SENSOR_ID,
@@ -149,6 +150,9 @@ async def to_code(config):
   if "show_logo" in config:
     sens = await cg.get_variable(config["show_logo"])
     cg.add(var.set_show_logo(sens))
+  if "logo_flicker" in config:
+    sens = await cg.get_variable(config["logo_flicker"])
+    cg.add(var.set_logo_flicker(sens))
 
   if "gif_data" in config:
     sens = await cg.get_variable(config["gif_data"])

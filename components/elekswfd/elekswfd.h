@@ -72,6 +72,7 @@ namespace esphome {
       void set_show_time(binary_sensor::BinarySensor *sens) { show_time_ = sens; }
       void set_show_mic(binary_sensor::BinarySensor *sens) { show_mic_ = sens; }
       void set_show_logo(binary_sensor::BinarySensor *sens) { show_logo_ = sens; }
+      void set_logo_flicker(binary_sensor::BinarySensor *sens) { logo_flicker_ = sens; }
 
       void set_logo_animation(text_sensor::TextSensor *sens);
       void set_gif_animation(text_sensor::TextSensor *sens);
@@ -135,6 +136,7 @@ namespace esphome {
       binary_sensor::BinarySensor *show_time_{ nullptr };
       binary_sensor::BinarySensor *show_mic_{ nullptr };
       binary_sensor::BinarySensor *show_logo_{ nullptr };
+      binary_sensor::BinarySensor *logo_flicker_{ nullptr };
 
       text_sensor::TextSensor *logo_animation_{ nullptr };
       text_sensor::TextSensor *gif_animation_{ nullptr };
@@ -246,6 +248,11 @@ namespace esphome {
        * render the logo
        */
       void renderLogo();
+
+      /**
+       * randomly turn off 1-2 logo LEDs that are currently on (called every 50ms)
+       */
+      void flickerLogo();
 
       /**
        * parse a 5-char-per-frame encoded string into logo_frames and logo_delays

@@ -336,11 +336,13 @@ void EleksWFD::updateExternals() {
 void EleksWFD::animate() {
   int64_t now = esp_timer_get_time();
   int64_t time_passed = now - last_time_;
-  last_time_ = now;
 
   if ( time_passed < 250 ) {
+    // flicker runs every tick even when frames don't advance
+    this->flickerLogo();
     return;
   }
+  last_time_ = now;
 
   // logo animation -- per-frame timing from encoded data
   if ( logo_frame_total > 0 ) {
@@ -357,7 +359,7 @@ void EleksWFD::animate() {
 
   // gif animation -- per-frame timing from encoded data
   if ( gif_frame_total > 0 ) {
-    int64_t gif_elapsed = ( now - gif_last_frame_time_ ) / 1000; // microseconds to ms
+    int64_t gif_elapsed = ( now - gif_last_frame_time_ ) / 1000;
     uint16_t delay = gif_delays[ gif_frame_index ];
     if ( gif_elapsed >= delay ) {
       gif_frame_index++;
@@ -372,6 +374,9 @@ void EleksWFD::animate() {
   this->renderLogo();
   this->renderUpperText();
   this->renderLowerText();
+
+  // flicker runs after renders so it isn't immediately overwritten
+  this->flickerLogo();
 }
 
 void EleksWFD::renderGIF() {
@@ -449,6 +454,27 @@ void EleksWFD::renderLogo() {
     }
   }
 }
+
+void EleksWFD::flickerLogo() {
+  if ( logo_flicker_ == nullptr || !logo_flicker_->state ) return;
+  if ( logo_frame_total == 0 ) return;
+
+  uint32_t rand = esp_random();
+  if ( ( rand & 0xFF ) < 40 ) { // ~15% chance per 50ms tick
+    int idx = ( rand >> 8 ) % 26;
+    int led;
+    if ( idx < 13 ) {
+      led = esphome::elekswfd::display::logo::LOWER[ idx ];
+    } else {
+      led = esphome::elekswfd::display::logo::UPPER[ idx - 13 ];
+    }
+    // only flicker off LEDs that are currently on
+    if ( display_elements[ led ] ) {
+      display_elements[ led ] = false;
+    }
+  }
+}
+
 
 void EleksWFD::renderUpperText() {
   if ( ota_active_ ) return;
