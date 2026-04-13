@@ -166,6 +166,10 @@ namespace esphome {
       bool ota_active_{false};
 
       char lower_text[64];
+      int lower_text_length_{0};
+      int lower_text_scroll_offset_{0};
+      int64_t lower_text_last_scroll_time_{0};
+      bool lower_text_active_{false};
 
       bool started = false;
       int counter = 0;
@@ -225,6 +229,11 @@ namespace esphome {
        * render scrolling upper text to the 14-segment digits, skipped during OTA
        */
       void renderUpperText();
+
+      /**
+       * render lower text to the 7-segment digits, skipped when inactive (clock shows instead)
+       */
+      void renderLowerText();
 
       /**
        * parse an 11-char-per-frame encoded string into gif_frames and gif_delays

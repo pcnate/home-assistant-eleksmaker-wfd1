@@ -267,13 +267,21 @@ async function main() {
   });
   console.log( 'Logo uploaded to input_text.eleksmaker_logo' );
 
-  const upperText = '1234';
+  const upperText = 'ELEKSMAKER WFD1';
   await postToHA( 'input_text.eleksmaker_upper', upperText, {
     icon: 'mdi:format-text',
     min: 0,
     max: 255,
   });
   console.log( `Upper text uploaded: "${ upperText }"` );
+
+  const lowerText = ''; // empty = show clock
+  await postToHA( 'input_text.eleksmaker_lower', lowerText, {
+    icon: 'mdi:clock-digital',
+    min: 0,
+    max: 255,
+  });
+  console.log( `Lower text uploaded: "${ lowerText || '(empty - clock mode)' }"` );
 }
 
 main().catch( ( err ) => {

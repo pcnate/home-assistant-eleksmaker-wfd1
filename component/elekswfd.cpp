@@ -371,6 +371,7 @@ void EleksWFD::animate() {
   this->renderGIF();
   this->renderLogo();
   this->renderUpperText();
+  this->renderLowerText();
 }
 
 void EleksWFD::renderGIF() {
@@ -485,6 +486,37 @@ void EleksWFD::renderUpperText() {
 }
 
 
+void EleksWFD::renderLowerText() {
+  if ( !lower_text_active_ ) return;
+
+  int64_t now = esp_timer_get_time();
+
+  // scrolling for text longer than 6 chars
+  if ( lower_text_length_ > 6 ) {
+    int64_t elapsed = ( now - lower_text_last_scroll_time_ ) / 1000;
+    if ( elapsed >= 300 ) {
+      lower_text_scroll_offset_++;
+      if ( lower_text_scroll_offset_ >= lower_text_length_ + 3 ) {
+        lower_text_scroll_offset_ = 0;
+      }
+      lower_text_last_scroll_time_ = now;
+    }
+  }
+
+  for ( int i = 0; i < 6; i++ ) {
+    char c;
+    if ( lower_text_length_ <= 6 ) {
+      c = i < lower_text_length_ ? lower_text[ i ] : ' ';
+    } else {
+      int total = lower_text_length_ + 3;
+      int idx = ( lower_text_scroll_offset_ + i ) % total;
+      c = idx < lower_text_length_ ? lower_text[ idx ] : ' ';
+    }
+    writeLowerDigit( i + 1, c );
+  }
+}
+
+
 void EleksWFD::setOtaProgress( int pct ) {
   if ( pct < 0 ) {
     // OTA ended or errored -- resume normal text
@@ -515,6 +547,12 @@ void EleksWFD::setOtaProgress( int pct ) {
 
 
 void EleksWFD::updateTime( int hour, int minute, int second ) {
+  if ( lower_text_active_ ) {
+    display_elements[ esphome::elekswfd::display::LOWER_DIGIT_SEPARATOR_1 ] = false;
+    display_elements[ esphome::elekswfd::display::LOWER_DIGIT_SEPARATOR_2 ] = false;
+    return;
+  }
+
   bool showClock = true;
   if ( show_time_ != nullptr ) {
     showClock = show_time_->state;
@@ -1155,8 +1193,43 @@ void EleksWFD::set_upper_text( text_sensor::TextSensor *sens ) {
     upper_text_scroll_offset_ = 0;
   });
 }
-void EleksWFD::set_lower_text(text_sensor::TextSensor *sens) {
-  
+void EleksWFD::set_lower_text( text_sensor::TextSensor *sens ) {
+  lower_text_ = sens;
+
+  if ( sens == nullptr ) return;
+
+  auto parseLower = [this]( const std::string &value ) {
+    // check if empty or all spaces
+    bool blank = value.empty();
+    if ( !blank ) {
+      blank = true;
+      for ( char c : value ) {
+        if ( c != ' ' ) { blank = false; break; }
+      }
+    }
+
+    if ( blank ) {
+      lower_text_active_ = false;
+      lower_text_length_ = 0;
+      ESP_LOGI( TAG, "Lower text cleared, showing clock" );
+      return;
+    }
+
+    lower_text_length_ = value.length() > 63 ? 63 : value.length();
+    memcpy( lower_text, value.c_str(), lower_text_length_ );
+    lower_text[ lower_text_length_ ] = '\0';
+    lower_text_scroll_offset_ = 0;
+    lower_text_active_ = true;
+    ESP_LOGI( TAG, "Lower text updated: %s", lower_text );
+  };
+
+  // parse initial state if available
+  if ( sens->has_state() ) {
+    parseLower( sens->state );
+  }
+
+  // listen for live updates from HA
+  sens->add_on_state_callback( parseLower );
 }
 
 }  // namespace elekswfd
