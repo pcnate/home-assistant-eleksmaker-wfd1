@@ -1,3 +1,10 @@
+# [1.0.0-rc.10](https://github.com/pcnate/home-assistant-eleksmaker-wfd1/compare/v1.0.0-rc.9...v1.0.0-rc.10) (2026-04-16)
+
+
+### Features
+
+* support multiple present gifs for automation ([d4e526a](https://github.com/pcnate/home-assistant-eleksmaker-wfd1/commit/d4e526a303352d2559a1c435250f3abbe44ed928))
+
 # [1.0.0-rc.9](https://github.com/pcnate/home-assistant-eleksmaker-wfd1/compare/v1.0.0-rc.8...v1.0.0-rc.9) (2026-04-16)
 
 
