@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-EleksWFD is a Windows system monitoring agent written in Rust that reads AIDA64 sensor data via WMI and pushes metrics to Home Assistant. A companion ESP32 ESPHome component (in `component/`) receives the data from HA and drives a TM1680 LED matrix display.
+EleksWFD is a Windows system monitoring agent written in Rust that reads AIDA64 sensor data via WMI and pushes metrics to Home Assistant. A companion ESP32 ESPHome component (in `components/elekswfd/`) receives the data from HA and drives a TM1680 LED matrix display.
 
 Data flow: `AIDA64 -> WMI -> eleks-monitor.exe -> HTTP POST -> Home Assistant -> ESPHome -> EleksWFD Display`
 
@@ -51,7 +51,7 @@ The `start` scripts copy the exe to `eleks-monitor.running.exe` before running s
 - **Refresh interval synced to HA**: Stored as `sensor.{MACHINE_NAME}_refresh_interval`. Created with default 333ms if missing. Checked every 5s for external changes. TUI settings pushes changes to HA.
 - **Shutdown sends zeros**: On graceful exit, all metrics are POSTed as zero so HA/display knows the PC is offline. Not attempted during auto-exit on HA failure.
 
-### ESPHome Component (`component/`)
+### ESPHome Component (`components/elekswfd/`)
 
 C++/Python code for ESP32. Not part of the Rust build. Drives a TM1680 24x16 LED matrix via I2C (addr `0x73`) with DS3231 RTC (addr `0x68`). The display has 384 LEDs mapped to `display_elements[24*16]`: 7-segment clock digits, 14-segment text, CPU/GPU/RAM horizontal bars (20 LEDs each), vertical bar charts (12 LEDs each), status icons, weather indicators, 7x7 matrix for GIF animations, and a 2x13 logo area. `updateExternals()` runs every 133ms to read HA sensor entities and update the display.
 

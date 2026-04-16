@@ -14,3 +14,8 @@ run.log
 stop.trigger
 *.pfx
 target/
+Cargo.lock
+/.esphome/
+__pycache__/
+eleksmaker-home.yaml
+secrets.yaml

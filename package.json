@@ -8,6 +8,12 @@
     "start": "copy /Y dist\\eleks-monitor.exe dist\\eleks-monitor.running.exe >nul && .\\dist\\eleks-monitor.running.exe",
     "start:daemon": "copy /Y dist\\eleks-monitor.exe dist\\eleks-monitor.running.exe >nul && .\\dist\\eleks-monitor.running.exe -d",
     "build": "ts-node bin/build.ts",
+    "build:esphome": "docker run --rm -v \"%cd%:/config\" -v \"%cd%/components/elekswfd:/config/esphome/components/elekswfd\" ghcr.io/esphome/esphome compile /config/eleksmaker-home.yaml",
+    "upload:esphome": "ts-node bin/upload-esphome.ts",
+    "update:ha": "ts-node bin/update-ha.ts",
+    "set:upper": "ts-node bin/set-upper-text.ts",
+    "set:lower": "ts-node bin/set-lower-text.ts",
+    "create:helpers": "ts-node bin/create-ha-helpers.ts",
     "create-installer": "iscc build/setup.iss",
     "sign": "ts-node bin/sign.ts"
   },
