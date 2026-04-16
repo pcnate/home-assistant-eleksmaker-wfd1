@@ -1,3 +1,10 @@
+# [1.0.0-rc.9](https://github.com/pcnate/home-assistant-eleksmaker-wfd1/compare/v1.0.0-rc.8...v1.0.0-rc.9) (2026-04-16)
+
+
+### Bug Fixes
+
+* Include built HA card in release artifacts ([65b48e3](https://github.com/pcnate/home-assistant-eleksmaker-wfd1/commit/65b48e3f029e2d80f685e6e740b2e4bf5d418752))
+
 # [1.0.0-rc.8](https://github.com/pcnate/home-assistant-eleksmaker-wfd1/compare/v1.0.0-rc.7...v1.0.0-rc.8) (2026-04-16)
 
 
