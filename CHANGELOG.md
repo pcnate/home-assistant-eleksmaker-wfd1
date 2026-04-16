@@ -1,3 +1,10 @@
+# [1.0.0-rc.12](https://github.com/pcnate/home-assistant-eleksmaker-wfd1/compare/v1.0.0-rc.11...v1.0.0-rc.12) (2026-04-16)
+
+
+### Bug Fixes
+
+* Use HA service call, handle blank upper text ([9043c1a](https://github.com/pcnate/home-assistant-eleksmaker-wfd1/commit/9043c1a344b3be49d8b0d368f2c9cfd9fa25be1a))
+
 # [1.0.0-rc.11](https://github.com/pcnate/home-assistant-eleksmaker-wfd1/compare/v1.0.0-rc.10...v1.0.0-rc.11) (2026-04-16)
 
 
