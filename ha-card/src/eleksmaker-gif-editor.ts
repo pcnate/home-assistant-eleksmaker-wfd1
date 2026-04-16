@@ -104,41 +104,26 @@ export class EleksmakerGifEditor extends LitElement {
     .timing button.active {
       background: var( --accent-color );
     }
+    /* Layout sizing: matrix cell = 24 px, border = gap = 12 px (half of cell). */
     .display-area {
-      display: inline-flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 8px;
+      position: relative;
+      width: 216px;    /* 168 matrix + 2*(12 border + 12 gap) */
+      height: 216px;
       margin: 8px 0;
-    }
-    .horizontal-side {
-      display: flex;
-      justify-content: space-around;
-      align-items: center;
-      width: 168px;
-    }
-    .middle-row {
-      display: flex;
-      align-items: stretch;
-      gap: 8px;
-    }
-    .vertical-side {
-      display: flex;
-      flex-direction: column;
-      justify-content: space-around;
-      align-items: center;
+      background: #1a1a1a;
     }
     .matrix {
+      position: absolute;
+      top: 24px;       /* border + gap */
+      left: 24px;
       display: grid;
       grid-template-columns: repeat( 7, 24px );
       grid-template-rows: repeat( 7, 24px );
-      gap: 0;
     }
     .cell {
       width: 24px;
       height: 24px;
       background: #1a1a1a;
-      border: 1px solid #2a2a2a;
       cursor: pointer;
       box-sizing: border-box;
       transition: background 0.1s;
@@ -150,29 +135,49 @@ export class EleksmakerGifEditor extends LitElement {
     .cell:hover {
       outline: 1px solid var( --accent-color );
     }
+
+    /* LED strip segments — positioned absolutely; 12 px thick (half cell). */
     .led {
+      position: absolute;
       background: #1a1a1a;
-      border: 1px solid #2a2a2a;
       cursor: pointer;
       transition: background 0.1s;
-      flex-shrink: 0;
-      border-radius: 2px;
     }
     .led.on {
       background: #ffffff;
       box-shadow: 0 0 6px rgba( 255, 255, 255, 0.8 );
     }
     .led:hover {
-      outline: 1px solid var( --accent-color );
+      filter: brightness( 1.3 );
     }
-    .led-h {
-      width: 48px;
-      height: 6px;
-    }
-    .led-v {
-      width: 6px;
-      height: 48px;
-    }
+
+    /* Top row: 72 px wide, 12 px tall, three segments */
+    .led-top-0 { top: 0; left: 0;    width: 72px; height: 12px;
+      clip-path: polygon( 0 0, 100% 0, 100% 100%, 12px 100% ); }
+    .led-top-1 { top: 0; left: 72px; width: 72px; height: 12px; }
+    .led-top-2 { top: 0; left: 144px; width: 72px; height: 12px;
+      clip-path: polygon( 0 0, 100% 0, calc( 100% - 12px ) 100%, 0 100% ); }
+
+    /* Right column: 12 px wide, 72 px tall */
+    .led-right-3 { top: 0;    left: 204px; width: 12px; height: 72px;
+      clip-path: polygon( 100% 0, 100% 100%, 0 100%, 0 12px ); }
+    .led-right-4 { top: 72px; left: 204px; width: 12px; height: 72px; }
+    .led-right-5 { top: 144px; left: 204px; width: 12px; height: 72px;
+      clip-path: polygon( 0 0, 100% 0, 100% 100%, 0 calc( 100% - 12px ) ); }
+
+    /* Bottom row (display L→R uses array indices 8, 7, 6) */
+    .led-bottom-8 { bottom: 0; left: 0;    width: 72px; height: 12px;
+      clip-path: polygon( 12px 0, 100% 0, 100% 100%, 0 100% ); }
+    .led-bottom-7 { bottom: 0; left: 72px; width: 72px; height: 12px; }
+    .led-bottom-6 { bottom: 0; left: 144px; width: 72px; height: 12px;
+      clip-path: polygon( 0 0, calc( 100% - 12px ) 0, 100% 100%, 0 100% ); }
+
+    /* Left column (display T→B uses array indices 11, 10, 9) */
+    .led-left-11 { top: 0;    left: 0; width: 12px; height: 72px;
+      clip-path: polygon( 0 0, 100% 12px, 100% 100%, 0 100% ); }
+    .led-left-10 { top: 72px; left: 0; width: 12px; height: 72px; }
+    .led-left-9  { top: 144px; left: 0; width: 12px; height: 72px;
+      clip-path: polygon( 0 0, 100% 0, 100% calc( 100% - 12px ), 0 100% ); }
     .actions {
       display: flex;
       gap: 8px;
@@ -465,19 +470,14 @@ export class EleksmakerGifEditor extends LitElement {
     const atMax = ( this.frames.length + 1 ) * CHARS_PER_FRAME > MAX_CHARS;
 
     /**
-     * Render a circle LED as a horizontal bar (top/bottom sides).
+     * Render a circle LED with a specific position class.
+     *
+     * @param idx - circle index (0-11)
+     * @param posClass - position class name (led-top-0, led-right-3, etc.)
      */
-    const ledH = ( i: number ) => html`
-      <div class="led led-h ${ f.circle[ i ] ? 'on' : '' }"
-           @click=${ () => this.toggleCircle( i ) }></div>
-    `;
-
-    /**
-     * Render a circle LED as a vertical bar (left/right sides).
-     */
-    const ledV = ( i: number ) => html`
-      <div class="led led-v ${ f.circle[ i ] ? 'on' : '' }"
-           @click=${ () => this.toggleCircle( i ) }></div>
+    const led = ( idx: number, posClass: string ) => html`
+      <div class="led ${ posClass } ${ f.circle[ idx ] ? 'on' : '' }"
+           @click=${ () => this.toggleCircle( idx ) }></div>
     `;
 
     return html`
@@ -502,29 +502,28 @@ export class EleksmakerGifEditor extends LitElement {
           </div>
 
           <div class="display-area">
-            <div class="horizontal-side">
-              ${ ledH( 0 ) }${ ledH( 1 ) }${ ledH( 2 ) }
-            </div>
-            <div class="middle-row">
-              <div class="vertical-side">
-                ${ ledV( 11 ) }${ ledV( 10 ) }${ ledV( 9 ) }
-              </div>
-              <div class="matrix">
-                ${ f.matrix.flat().map( ( on, idx ) => {
-                  const r = Math.floor( idx / 7 );
-                  const c = idx % 7;
-                  return html`
-                    <div class="cell ${ on ? 'on' : '' }"
-                         @click=${ () => this.toggleCell( r, c ) }></div>
-                  `;
-                } ) }
-              </div>
-              <div class="vertical-side">
-                ${ ledV( 3 ) }${ ledV( 4 ) }${ ledV( 5 ) }
-              </div>
-            </div>
-            <div class="horizontal-side">
-              ${ ledH( 8 ) }${ ledH( 7 ) }${ ledH( 6 ) }
+            ${ led( 0,  'led-top-0' ) }
+            ${ led( 1,  'led-top-1' ) }
+            ${ led( 2,  'led-top-2' ) }
+            ${ led( 3,  'led-right-3' ) }
+            ${ led( 4,  'led-right-4' ) }
+            ${ led( 5,  'led-right-5' ) }
+            ${ led( 6,  'led-bottom-6' ) }
+            ${ led( 7,  'led-bottom-7' ) }
+            ${ led( 8,  'led-bottom-8' ) }
+            ${ led( 9,  'led-left-9' ) }
+            ${ led( 10, 'led-left-10' ) }
+            ${ led( 11, 'led-left-11' ) }
+
+            <div class="matrix">
+              ${ f.matrix.flat().map( ( on, idx ) => {
+                const r = Math.floor( idx / 7 );
+                const c = idx % 7;
+                return html`
+                  <div class="cell ${ on ? 'on' : '' }"
+                       @click=${ () => this.toggleCell( r, c ) }></div>
+                `;
+              } ) }
             </div>
           </div>
 

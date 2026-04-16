@@ -18,5 +18,6 @@ target/
 Cargo.lock
 /.esphome/
 __pycache__/
+.tmp-gif-frames/
 eleksmaker-home.yaml
 secrets.yaml
