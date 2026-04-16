@@ -1,3 +1,10 @@
+# [1.0.0-rc.14](https://github.com/pcnate/home-assistant-eleksmaker-wfd1/compare/v1.0.0-rc.13...v1.0.0-rc.14) (2026-04-16)
+
+
+### Features
+
+* Add GIF renderer, images, and editor layout ([cb53f57](https://github.com/pcnate/home-assistant-eleksmaker-wfd1/commit/cb53f57403122abebc644638bb0c5e9ae76bda89))
+
 # [1.0.0-rc.13](https://github.com/pcnate/home-assistant-eleksmaker-wfd1/compare/v1.0.0-rc.12...v1.0.0-rc.13) (2026-04-16)
 
 
