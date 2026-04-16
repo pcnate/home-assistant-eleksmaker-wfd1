@@ -63,6 +63,7 @@ void EleksWFD::setup() {
   this->initializeButtons();
   this->initializeMicrophone();
   this->readTimeFromRTC();
+  this->buildFlickerList();
 
   // this->updateTime( this->counter, this->counter, this->counter );
 
@@ -72,6 +73,7 @@ void EleksWFD::setup() {
   set_interval(   50, [this](){ this->readMicrophone(); });
   set_interval(  133, [this](){ this->updateExternals(); });
   set_interval(   50, [this](){ this->animate(); });
+  set_interval(   10, [this](){ this->applyFlicker(); });
 }
 
 void EleksWFD::loop() {
@@ -338,8 +340,6 @@ void EleksWFD::animate() {
   int64_t time_passed = now - last_time_;
 
   if ( time_passed < 250 ) {
-    // flicker runs every tick even when frames don't advance
-    this->flickerLogo();
     return;
   }
   last_time_ = now;
@@ -374,9 +374,6 @@ void EleksWFD::animate() {
   this->renderLogo();
   this->renderUpperText();
   this->renderLowerText();
-
-  // flicker runs after renders so it isn't immediately overwritten
-  this->flickerLogo();
 }
 
 void EleksWFD::renderGIF() {
@@ -455,22 +452,107 @@ void EleksWFD::renderLogo() {
   }
 }
 
-void EleksWFD::flickerLogo() {
-  if ( logo_flicker_ == nullptr || !logo_flicker_->state ) return;
-  if ( logo_frame_total == 0 ) return;
+void EleksWFD::buildFlickerList() {
+  using namespace esphome::elekswfd::display;
+  flicker_leds_.clear();
 
-  uint32_t rand = esp_random();
-  if ( ( rand & 0xFF ) < 40 ) { // ~15% chance per 50ms tick
-    int idx = ( rand >> 8 ) % 26;
-    int led;
-    if ( idx < 13 ) {
-      led = esphome::elekswfd::display::logo::LOWER[ idx ];
+  // logo (26 LEDs)
+  for ( int i = 0; i < 13; i++ ) {
+    flicker_leds_.push_back( logo::UPPER[ i ] );
+    flicker_leds_.push_back( logo::LOWER[ i ] );
+  }
+
+  // day of week (15 LEDs)
+  for ( int i = 0; i < 2; i++ ) {
+    flicker_leds_.push_back( day_of_week::MONDAY[ i ] );
+    flicker_leds_.push_back( day_of_week::TUESDAY[ i ] );
+    flicker_leds_.push_back( day_of_week::WEDNESDAY[ i ] );
+    flicker_leds_.push_back( day_of_week::THURSDAY[ i ] );
+    flicker_leds_.push_back( day_of_week::FRIDAY[ i ] );
+    flicker_leds_.push_back( day_of_week::SATURDAY[ i ] );
+  }
+  for ( int i = 0; i < 3; i++ ) {
+    flicker_leds_.push_back( day_of_week::SUNDAY[ i ] );
+  }
+
+  // horizontal bar groups: logo + bar + percentage = 22 LEDs each, 3 groups (66)
+  flicker_leds_.push_back( horizontal_bars::CPU_LOGO[ 0 ] );
+  for ( int i = 0; i < 20; i++ ) flicker_leds_.push_back( horizontal_bars::CPU_BAR[ i ] );
+  flicker_leds_.push_back( horizontal_bars::CPU_PERCENTAGE[ 0 ] );
+
+  flicker_leds_.push_back( horizontal_bars::GPU_LOGO[ 0 ] );
+  for ( int i = 0; i < 20; i++ ) flicker_leds_.push_back( horizontal_bars::GPU_BAR[ i ] );
+  flicker_leds_.push_back( horizontal_bars::GPU_PERCENTAGE[ 0 ] );
+
+  flicker_leds_.push_back( horizontal_bars::RAM_LOGO[ 0 ] );
+  for ( int i = 0; i < 20; i++ ) flicker_leds_.push_back( horizontal_bars::RAM_BAR[ i ] );
+  flicker_leds_.push_back( horizontal_bars::RAM_PERCENTAGE[ 0 ] );
+
+  // vertical bars (24 LEDs)
+  for ( int i = 0; i < 12; i++ ) {
+    flicker_leds_.push_back( vertical_bars::BAR_1[ i ] );
+    flicker_leds_.push_back( vertical_bars::BAR_2[ i ] );
+  }
+
+  // upper 14-segment digits (6 * 13 = 78 LEDs)
+  const int upper_segs[ 6 ][ 13 ] = {
+    { UPPER_DIGIT_1::SEG_A, UPPER_DIGIT_1::SEG_B, UPPER_DIGIT_1::SEG_C, UPPER_DIGIT_1::SEG_D, UPPER_DIGIT_1::SEG_E, UPPER_DIGIT_1::SEG_F, UPPER_DIGIT_1::SEG_G, UPPER_DIGIT_1::SEG_H, UPPER_DIGIT_1::SEG_I, UPPER_DIGIT_1::SEG_J, UPPER_DIGIT_1::SEG_K, UPPER_DIGIT_1::SEG_L, UPPER_DIGIT_1::SEG_M },
+    { UPPER_DIGIT_2::SEG_A, UPPER_DIGIT_2::SEG_B, UPPER_DIGIT_2::SEG_C, UPPER_DIGIT_2::SEG_D, UPPER_DIGIT_2::SEG_E, UPPER_DIGIT_2::SEG_F, UPPER_DIGIT_2::SEG_G, UPPER_DIGIT_2::SEG_H, UPPER_DIGIT_2::SEG_I, UPPER_DIGIT_2::SEG_J, UPPER_DIGIT_2::SEG_K, UPPER_DIGIT_2::SEG_L, UPPER_DIGIT_2::SEG_M },
+    { UPPER_DIGIT_3::SEG_A, UPPER_DIGIT_3::SEG_B, UPPER_DIGIT_3::SEG_C, UPPER_DIGIT_3::SEG_D, UPPER_DIGIT_3::SEG_E, UPPER_DIGIT_3::SEG_F, UPPER_DIGIT_3::SEG_G, UPPER_DIGIT_3::SEG_H, UPPER_DIGIT_3::SEG_I, UPPER_DIGIT_3::SEG_J, UPPER_DIGIT_3::SEG_K, UPPER_DIGIT_3::SEG_L, UPPER_DIGIT_3::SEG_M },
+    { UPPER_DIGIT_4::SEG_A, UPPER_DIGIT_4::SEG_B, UPPER_DIGIT_4::SEG_C, UPPER_DIGIT_4::SEG_D, UPPER_DIGIT_4::SEG_E, UPPER_DIGIT_4::SEG_F, UPPER_DIGIT_4::SEG_G, UPPER_DIGIT_4::SEG_H, UPPER_DIGIT_4::SEG_I, UPPER_DIGIT_4::SEG_J, UPPER_DIGIT_4::SEG_K, UPPER_DIGIT_4::SEG_L, UPPER_DIGIT_4::SEG_M },
+    { UPPER_DIGIT_5::SEG_A, UPPER_DIGIT_5::SEG_B, UPPER_DIGIT_5::SEG_C, UPPER_DIGIT_5::SEG_D, UPPER_DIGIT_5::SEG_E, UPPER_DIGIT_5::SEG_F, UPPER_DIGIT_5::SEG_G, UPPER_DIGIT_5::SEG_H, UPPER_DIGIT_5::SEG_I, UPPER_DIGIT_5::SEG_J, UPPER_DIGIT_5::SEG_K, UPPER_DIGIT_5::SEG_L, UPPER_DIGIT_5::SEG_M },
+    { UPPER_DIGIT_6::SEG_A, UPPER_DIGIT_6::SEG_B, UPPER_DIGIT_6::SEG_C, UPPER_DIGIT_6::SEG_D, UPPER_DIGIT_6::SEG_E, UPPER_DIGIT_6::SEG_F, UPPER_DIGIT_6::SEG_G, UPPER_DIGIT_6::SEG_H, UPPER_DIGIT_6::SEG_I, UPPER_DIGIT_6::SEG_J, UPPER_DIGIT_6::SEG_K, UPPER_DIGIT_6::SEG_L, UPPER_DIGIT_6::SEG_M },
+  };
+  for ( int d = 0; d < 6; d++ ) {
+    for ( int s = 0; s < 13; s++ ) flicker_leds_.push_back( upper_segs[ d ][ s ] );
+  }
+
+  // lower 7-segment digits (6 * 7 = 42 LEDs)
+  const int lower_segs[ 6 ][ 7 ] = {
+    { LOWER_DIGIT_1::SEG_A, LOWER_DIGIT_1::SEG_B, LOWER_DIGIT_1::SEG_C, LOWER_DIGIT_1::SEG_D, LOWER_DIGIT_1::SEG_E, LOWER_DIGIT_1::SEG_F, LOWER_DIGIT_1::SEG_G },
+    { LOWER_DIGIT_2::SEG_A, LOWER_DIGIT_2::SEG_B, LOWER_DIGIT_2::SEG_C, LOWER_DIGIT_2::SEG_D, LOWER_DIGIT_2::SEG_E, LOWER_DIGIT_2::SEG_F, LOWER_DIGIT_2::SEG_G },
+    { LOWER_DIGIT_3::SEG_A, LOWER_DIGIT_3::SEG_B, LOWER_DIGIT_3::SEG_C, LOWER_DIGIT_3::SEG_D, LOWER_DIGIT_3::SEG_E, LOWER_DIGIT_3::SEG_F, LOWER_DIGIT_3::SEG_G },
+    { LOWER_DIGIT_4::SEG_A, LOWER_DIGIT_4::SEG_B, LOWER_DIGIT_4::SEG_C, LOWER_DIGIT_4::SEG_D, LOWER_DIGIT_4::SEG_E, LOWER_DIGIT_4::SEG_F, LOWER_DIGIT_4::SEG_G },
+    { LOWER_DIGIT_5::SEG_A, LOWER_DIGIT_5::SEG_B, LOWER_DIGIT_5::SEG_C, LOWER_DIGIT_5::SEG_D, LOWER_DIGIT_5::SEG_E, LOWER_DIGIT_5::SEG_F, LOWER_DIGIT_5::SEG_G },
+    { LOWER_DIGIT_6::SEG_A, LOWER_DIGIT_6::SEG_B, LOWER_DIGIT_6::SEG_C, LOWER_DIGIT_6::SEG_D, LOWER_DIGIT_6::SEG_E, LOWER_DIGIT_6::SEG_F, LOWER_DIGIT_6::SEG_G },
+  };
+  for ( int d = 0; d < 6; d++ ) {
+    for ( int s = 0; s < 7; s++ ) flicker_leds_.push_back( lower_segs[ d ][ s ] );
+  }
+
+  // digit separator colons
+  flicker_leds_.push_back( LOWER_DIGIT_SEPARATOR_1 );
+  flicker_leds_.push_back( LOWER_DIGIT_SEPARATOR_2 );
+
+  ESP_LOGI( TAG, "Flicker pool: %d LEDs", (int) flicker_leds_.size() );
+}
+
+
+void EleksWFD::applyFlicker() {
+  if ( flicker_leds_.empty() ) return;
+
+  int64_t now = esp_timer_get_time();
+  const int64_t FLICKER_DURATION_US = 40000; // 40ms off time
+
+  // restore LEDs that have been flickered long enough
+  for ( auto it = active_flickers_.begin(); it != active_flickers_.end(); ) {
+    if ( now - it->time_us >= FLICKER_DURATION_US ) {
+      display_elements[ it->led ] = true;
+      it = active_flickers_.erase( it );
     } else {
-      led = esphome::elekswfd::display::logo::UPPER[ idx - 13 ];
+      ++it;
     }
-    // only flicker off LEDs that are currently on
+  }
+
+  if ( logo_flicker_ == nullptr || !logo_flicker_->state ) return;
+
+  // add at most one new flicker per tick with moderate probability
+  uint32_t rand = esp_random();
+  if ( ( rand & 0xFF ) < 60 ) { // ~23% chance per tick
+    int led = flicker_leds_[ ( rand >> 8 ) % flicker_leds_.size() ];
     if ( display_elements[ led ] ) {
       display_elements[ led ] = false;
+      active_flickers_.push_back( { led, now } );
     }
   }
 }

@@ -173,6 +173,16 @@ namespace esphome {
       int64_t lower_text_last_scroll_time_{0};
       bool lower_text_active_{false};
 
+      // LEDs eligible for flickering: logo, DoW, horizontal bars, vertical bars, upper/lower digits
+      std::vector<int> flicker_leds_;
+
+      // tracks currently-flickered LEDs so we can restore them quickly
+      struct FlickerState {
+        int led;
+        int64_t time_us;
+      };
+      std::vector<FlickerState> active_flickers_;
+
       bool started = false;
       int counter = 0;
       int barcounter = 0;
@@ -250,9 +260,14 @@ namespace esphome {
       void renderLogo();
 
       /**
-       * randomly turn off 1-2 logo LEDs that are currently on (called every 50ms)
+       * randomly turn off LEDs in the flickerable pool that are currently on
        */
-      void flickerLogo();
+      void applyFlicker();
+
+      /**
+       * populate flicker_leds_ with all LEDs eligible for random flickering
+       */
+      void buildFlickerList();
 
       /**
        * parse a 5-char-per-frame encoded string into logo_frames and logo_delays
