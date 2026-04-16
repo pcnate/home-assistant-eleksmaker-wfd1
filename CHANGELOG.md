@@ -1,3 +1,10 @@
+# [1.0.0-rc.8](https://github.com/pcnate/home-assistant-eleksmaker-wfd1/compare/v1.0.0-rc.7...v1.0.0-rc.8) (2026-04-16)
+
+
+### Features
+
+* Add EleksMaker Lovelace card ([13b5a11](https://github.com/pcnate/home-assistant-eleksmaker-wfd1/commit/13b5a1199c00a5cf2db67b91cb5c1025ae61419f))
+
 # [1.0.0-rc.7](https://github.com/pcnate/home-assistant-eleksmaker-wfd1/compare/v1.0.0-rc.6...v1.0.0-rc.7) (2026-04-16)
 
 
