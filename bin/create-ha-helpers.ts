@@ -114,6 +114,15 @@ async function main() {
   await createHelper( ws, id++, 'input_text', { name: 'EleksMaker Lower', min: 0, max: 255, icon: 'mdi:clock-digital' } );
   await createHelper( ws, id++, 'input_boolean', { name: 'EleksMaker Logo Flicker', icon: 'mdi:flash' } );
 
+  for ( let slot = 1; slot <= 10; slot++ ) {
+    await createHelper( ws, id++, 'input_text', {
+      name: `EleksMaker GIF Preset ${ slot }`,
+      min: 0,
+      max: 255,
+      icon: 'mdi:content-save',
+    });
+  }
+
   console.log( '=== Done ===' );
   ws.close();
 }

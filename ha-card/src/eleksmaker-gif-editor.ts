@@ -15,6 +15,8 @@ interface Frame {
 const TIMING_LABELS = [ '50ms', '100ms', '200ms', '500ms' ];
 const MAX_CHARS = 255;
 const CHARS_PER_FRAME = 11;
+const PRESET_SLOTS = 10;
+const PRESET_ENTITY_PREFIX = 'input_text.eleksmaker_gif_preset_';
 
 
 @customElement( 'eleksmaker-gif-editor' )
@@ -25,6 +27,7 @@ export class EleksmakerGifEditor extends LitElement {
   @state() private frames: Frame[] = [ this.newFrame() ];
   @state() private currentFrame = 0;
   @state() private lastLoadedValue = '';
+  @state() private selectedSlot = 1;
 
 
   /**
@@ -100,15 +103,30 @@ export class EleksmakerGifEditor extends LitElement {
       background: var( --accent-color );
     }
     .display-area {
-      display: inline-grid;
-      grid-template-columns: 20px 20px 168px 20px 20px;
-      grid-template-rows: 20px 20px 168px 20px 20px;
-      gap: 2px;
+      display: inline-flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
       margin: 8px 0;
     }
+    .horizontal-side {
+      display: flex;
+      justify-content: space-around;
+      align-items: center;
+      width: 168px;
+    }
+    .middle-row {
+      display: flex;
+      align-items: stretch;
+      gap: 8px;
+    }
+    .vertical-side {
+      display: flex;
+      flex-direction: column;
+      justify-content: space-around;
+      align-items: center;
+    }
     .matrix {
-      grid-column: 3;
-      grid-row: 3;
       display: grid;
       grid-template-columns: repeat( 7, 24px );
       grid-template-rows: repeat( 7, 24px );
@@ -124,24 +142,25 @@ export class EleksmakerGifEditor extends LitElement {
       transition: background 0.1s;
     }
     .cell.on {
-      background: #4caf50;
-      box-shadow: 0 0 6px rgba( 76, 175, 80, 0.6 );
+      background: #ffffff;
+      box-shadow: 0 0 6px rgba( 255, 255, 255, 0.7 );
     }
     .cell:hover {
       outline: 1px solid var( --accent-color );
     }
     .led-circle {
-      width: 18px;
-      height: 18px;
+      width: 16px;
+      height: 16px;
       border-radius: 50%;
       background: #1a1a1a;
       border: 1px solid #2a2a2a;
       cursor: pointer;
       transition: background 0.1s;
+      flex-shrink: 0;
     }
     .led-circle.on {
-      background: #ffc107;
-      box-shadow: 0 0 6px rgba( 255, 193, 7, 0.8 );
+      background: #ffffff;
+      box-shadow: 0 0 6px rgba( 255, 255, 255, 0.8 );
     }
     .led-circle:hover {
       outline: 1px solid var( --accent-color );
@@ -151,6 +170,28 @@ export class EleksmakerGifEditor extends LitElement {
       gap: 8px;
       margin-top: 12px;
       flex-wrap: wrap;
+    }
+    .presets {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 12px;
+      padding: 8px;
+      background: var( --secondary-background-color );
+      border-radius: 4px;
+      flex-wrap: wrap;
+    }
+    .presets-label {
+      font-weight: bold;
+      font-size: 14px;
+    }
+    .presets select {
+      padding: 6px;
+      background: var( --card-background-color );
+      color: var( --primary-text-color );
+      border: 1px solid var( --divider-color );
+      border-radius: 4px;
+      font-size: 14px;
     }
     .meta {
       font-size: 12px;
@@ -330,17 +371,55 @@ export class EleksmakerGifEditor extends LitElement {
 
 
   /**
-   * Return the 12 circle LED positions arranged around the matrix.
-   * Index → [ gridColumn, gridRow ] in the 5x5 layout surrounding the matrix.
+   * Return the HA entity ID for a given preset slot number (1-10).
    */
-  private circlePositions(): Array<[ number, number ]> {
-    // top: 3 LEDs, right: 3, bottom: 3, left: 3
-    return [
-      [ 2, 1 ], [ 3, 1 ], [ 4, 1 ],        // 0-2: top (L→R)
-      [ 5, 2 ], [ 5, 3 ], [ 5, 4 ],        // 3-5: right (T→B)
-      [ 4, 5 ], [ 3, 5 ], [ 2, 5 ],        // 6-8: bottom (R→L)
-      [ 1, 4 ], [ 1, 3 ], [ 1, 2 ],        // 9-11: left (B→T)
-    ];
+  private presetEntity( slot: number ): string {
+    return `${ PRESET_ENTITY_PREFIX }${ slot }`;
+  }
+
+
+  /**
+   * Return the current stored value of a preset slot, or empty string.
+   */
+  private presetValue( slot: number ): string {
+    const s = this.hass?.states?.[ this.presetEntity( slot ) ];
+    return s?.state ?? '';
+  }
+
+
+  /**
+   * Return a label for a preset slot showing the frame count.
+   */
+  private presetLabel( slot: number ): string {
+    const val = this.presetValue( slot );
+    if ( !val ) return `Slot ${ slot }: empty`;
+    const frames = Math.floor( val.length / CHARS_PER_FRAME );
+    return `Slot ${ slot }: ${ frames } frame${ frames === 1 ? '' : 's' }`;
+  }
+
+
+  private async loadPreset(): Promise<void> {
+    const val = this.presetValue( this.selectedSlot );
+    if ( !val ) return;
+    this.frames = this.decode( val );
+    this.currentFrame = 0;
+    this.requestUpdate();
+  }
+
+
+  private async savePreset(): Promise<void> {
+    await this.hass.callService( 'input_text', 'set_value', {
+      entity_id: this.presetEntity( this.selectedSlot ),
+      value: this.encode(),
+    });
+  }
+
+
+  private async clearPreset(): Promise<void> {
+    await this.hass.callService( 'input_text', 'set_value', {
+      entity_id: this.presetEntity( this.selectedSlot ),
+      value: '',
+    });
   }
 
 
@@ -350,7 +429,14 @@ export class EleksmakerGifEditor extends LitElement {
     const title = this.config.title ?? 'EleksMaker GIF Editor';
     const charCount = this.frames.length * CHARS_PER_FRAME;
     const atMax = ( this.frames.length + 1 ) * CHARS_PER_FRAME > MAX_CHARS;
-    const circles = this.circlePositions();
+
+    /**
+     * Render a single circle LED at index i.
+     */
+    const led = ( i: number ) => html`
+      <div class="led-circle ${ f.circle[ i ] ? 'on' : '' }"
+           @click=${ () => this.toggleCircle( i ) }></div>
+    `;
 
     return html`
       <ha-card .header=${ title }>
@@ -374,26 +460,50 @@ export class EleksmakerGifEditor extends LitElement {
           </div>
 
           <div class="display-area">
-            ${ circles.map( ( [ col, row ], i ) => html`
-              <div class="led-circle ${ f.circle[ i ] ? 'on' : '' }"
-                   style="grid-column: ${ col }; grid-row: ${ row };"
-                   @click=${ () => this.toggleCircle( i ) }></div>
-            ` ) }
-            <div class="matrix">
-              ${ f.matrix.flat().map( ( on, idx ) => {
-                const r = Math.floor( idx / 7 );
-                const c = idx % 7;
-                return html`
-                  <div class="cell ${ on ? 'on' : '' }"
-                       @click=${ () => this.toggleCell( r, c ) }></div>
-                `;
-              } ) }
+            <div class="horizontal-side">
+              ${ led( 0 ) }${ led( 1 ) }${ led( 2 ) }
+            </div>
+            <div class="middle-row">
+              <div class="vertical-side">
+                ${ led( 11 ) }${ led( 10 ) }${ led( 9 ) }
+              </div>
+              <div class="matrix">
+                ${ f.matrix.flat().map( ( on, idx ) => {
+                  const r = Math.floor( idx / 7 );
+                  const c = idx % 7;
+                  return html`
+                    <div class="cell ${ on ? 'on' : '' }"
+                         @click=${ () => this.toggleCell( r, c ) }></div>
+                  `;
+                } ) }
+              </div>
+              <div class="vertical-side">
+                ${ led( 3 ) }${ led( 4 ) }${ led( 5 ) }
+              </div>
+            </div>
+            <div class="horizontal-side">
+              ${ led( 8 ) }${ led( 7 ) }${ led( 6 ) }
             </div>
           </div>
 
           <div class="actions">
             <button @click=${ this.saveToHA }>Save to HA</button>
             <button class="secondary" @click=${ this.loadFromHA }>Reload from HA</button>
+          </div>
+
+          <div class="presets">
+            <div class="presets-label">Presets</div>
+            <select
+              .value=${ String( this.selectedSlot ) }
+              @change=${ ( e: Event ) => { this.selectedSlot = Number( ( e.target as HTMLSelectElement ).value ); } }
+            >
+              ${ Array.from( { length: PRESET_SLOTS }, ( _, i ) => i + 1 ).map( slot => html`
+                <option value=${ slot } ?selected=${ slot === this.selectedSlot }>${ this.presetLabel( slot ) }</option>
+              ` ) }
+            </select>
+            <button @click=${ this.loadPreset } ?disabled=${ !this.presetValue( this.selectedSlot ) }>Load</button>
+            <button @click=${ this.savePreset }>Save</button>
+            <button class="secondary" @click=${ this.clearPreset } ?disabled=${ !this.presetValue( this.selectedSlot ) }>Clear</button>
           </div>
 
           <div class="meta ${ charCount > MAX_CHARS ? 'warn' : '' }">
