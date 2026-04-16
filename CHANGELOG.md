@@ -1,3 +1,10 @@
+# [1.0.0-rc.15](https://github.com/pcnate/home-assistant-eleksmaker-wfd1/compare/v1.0.0-rc.14...v1.0.0-rc.15) (2026-04-16)
+
+
+### Features
+
+* Add GIF play-count prefix and support ([a13cf7b](https://github.com/pcnate/home-assistant-eleksmaker-wfd1/commit/a13cf7be3f6613322c2ae1192bb930cde45e4d1d))
+
 # [1.0.0-rc.14](https://github.com/pcnate/home-assistant-eleksmaker-wfd1/compare/v1.0.0-rc.13...v1.0.0-rc.14) (2026-04-16)
 
 
