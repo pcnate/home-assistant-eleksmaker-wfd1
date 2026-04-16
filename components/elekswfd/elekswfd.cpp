@@ -19,6 +19,7 @@
 #include "esphome/components/binary_sensor/binary_sensor.h"
 #include "esphome/components/api/api_server.h"
 #include "esphome/components/api/api_pb2.h"
+#include "esphome/components/api/homeassistant_service.h"
 #ifdef __INTELLISENSE__
 #pragma diag_default 1696
 #endif
@@ -371,8 +372,9 @@ void EleksWFD::animate() {
 
       if ( should_clear ) {
         gif_done_ = true;
+#if defined( USE_API ) && defined( USE_API_HOMEASSISTANT_SERVICES )
         // if the global flag was the trigger, turn it back off (one-shot behaviour)
-        if ( global_clear ) {
+        if ( global_clear && api::global_api_server != nullptr ) {
           api::HomeassistantActionRequest req;
           req.service = StringRef( "input_boolean.turn_off" );
           req.data.init( 1 );
@@ -381,6 +383,7 @@ void EleksWFD::animate() {
           kv.value = StringRef( "input_boolean.eleksmaker_gif_clear_after" );
           api::global_api_server->send_homeassistant_action( req );
         }
+#endif
       } else {
         gif_frame_index++;
         if ( gif_frame_index >= gif_frame_total ) {
@@ -589,8 +592,17 @@ void EleksWFD::applyFlicker() {
 void EleksWFD::renderUpperText() {
   if ( ota_active_ ) return;
 
+  // treat empty or all-whitespace as "no user text" -> show date
+  bool blank = upper_text_length_ == 0;
+  if ( !blank ) {
+    blank = true;
+    for ( int i = 0; i < upper_text_length_; i++ ) {
+      if ( upper_text[ i ] != ' ' ) { blank = false; break; }
+    }
+  }
+
   // no user text -> show date as "MMM DD" (APR 16, MAR  1)
-  if ( upper_text_length_ == 0 ) {
+  if ( blank ) {
     static const char *MONTHS[] = {
       "JAN", "FEB", "MAR", "APR", "MAY", "JUN",
       "JUL", "AUG", "SEP", "OCT", "NOV", "DEC",

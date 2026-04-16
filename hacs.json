@@ -1,5 +1,6 @@
 {
   "name": "EleksMaker WFD Cards",
   "filename": "eleksmaker-gif-editor.js",
-  "render_readme": true
+  "render_readme": true,
+  "hide_default_branch": true
 }

@@ -23,26 +23,22 @@ const HA_URL = getEnv( 'HA_URL' ).replace( /\/api\/states\/?$/, '' );
 const HA_TOKEN = getEnv( 'HA_TOKEN' );
 const text = process.argv.slice( 2 ).join( ' ' );
 
-if ( !text ) {
-  console.error( 'Usage: npm run set:upper -- YOUR TEXT HERE' );
-  process.exit( 1 );
-}
 
 async function main() {
-  const res = await fetch( `${ HA_URL }/api/states/input_text.eleksmaker_upper`, {
+  const res = await fetch( `${ HA_URL }/api/services/input_text/set_value`, {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${ HA_TOKEN }`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      state: text,
-      attributes: { friendly_name: 'EleksMaker Upper', icon: 'mdi:format-text', min: 0, max: 255 },
+      entity_id: 'input_text.eleksmaker_upper',
+      value: text,
     }),
   });
 
   if ( !res.ok ) throw new Error( `HA POST failed: ${ res.status }` );
-  console.log( `Upper text set: "${ text }"` );
+  console.log( text ? `Upper text set: "${ text }"` : 'Upper text cleared (date mode)' );
 }
 
 main().catch( ( err ) => {
