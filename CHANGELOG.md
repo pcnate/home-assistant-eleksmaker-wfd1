@@ -1,3 +1,10 @@
+# [1.0.0-rc.13](https://github.com/pcnate/home-assistant-eleksmaker-wfd1/compare/v1.0.0-rc.12...v1.0.0-rc.13) (2026-04-16)
+
+
+### Features
+
+* better lines in HA and add CLI animate ([562c658](https://github.com/pcnate/home-assistant-eleksmaker-wfd1/commit/562c658f2dccd70f823379c502e280d196466880))
+
 # [1.0.0-rc.12](https://github.com/pcnate/home-assistant-eleksmaker-wfd1/compare/v1.0.0-rc.11...v1.0.0-rc.12) (2026-04-16)
 
 
