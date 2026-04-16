@@ -373,15 +373,30 @@ void EleksWFD::animate() {
       if ( should_clear ) {
         gif_done_ = true;
 #if defined( USE_API ) && defined( USE_API_HOMEASSISTANT_SERVICES )
-        // if the global flag was the trigger, turn it back off (one-shot behaviour)
-        if ( global_clear && api::global_api_server != nullptr ) {
-          api::HomeassistantActionRequest req;
-          req.service = StringRef( "input_boolean.turn_off" );
-          req.data.init( 1 );
-          auto &kv = req.data.emplace_back();
-          kv.key = StringRef( "entity_id" );
-          kv.value = StringRef( "input_boolean.eleksmaker_gif_clear_after" );
-          api::global_api_server->send_homeassistant_action( req );
+        if ( api::global_api_server != nullptr ) {
+          // clear the HA animation entity so re-pushing the same value counts
+          // as a state change and re-triggers the animation
+          api::HomeassistantActionRequest clear_req;
+          clear_req.service = StringRef( "input_text.set_value" );
+          clear_req.data.init( 2 );
+          auto &k1 = clear_req.data.emplace_back();
+          k1.key = StringRef( "entity_id" );
+          k1.value = StringRef( "input_text.eleksmaker_gif" );
+          auto &k2 = clear_req.data.emplace_back();
+          k2.key = StringRef( "value" );
+          k2.value = StringRef( "" );
+          api::global_api_server->send_homeassistant_action( clear_req );
+
+          // if the global flag was the trigger, turn it back off (one-shot)
+          if ( global_clear ) {
+            api::HomeassistantActionRequest off_req;
+            off_req.service = StringRef( "input_boolean.turn_off" );
+            off_req.data.init( 1 );
+            auto &kv = off_req.data.emplace_back();
+            kv.key = StringRef( "entity_id" );
+            kv.value = StringRef( "input_boolean.eleksmaker_gif_clear_after" );
+            api::global_api_server->send_homeassistant_action( off_req );
+          }
         }
 #endif
       } else {

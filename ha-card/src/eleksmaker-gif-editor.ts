@@ -150,22 +150,28 @@ export class EleksmakerGifEditor extends LitElement {
     .cell:hover {
       outline: 1px solid var( --accent-color );
     }
-    .led-circle {
-      width: 16px;
-      height: 16px;
-      border-radius: 50%;
+    .led {
       background: #1a1a1a;
       border: 1px solid #2a2a2a;
       cursor: pointer;
       transition: background 0.1s;
       flex-shrink: 0;
+      border-radius: 2px;
     }
-    .led-circle.on {
+    .led.on {
       background: #ffffff;
       box-shadow: 0 0 6px rgba( 255, 255, 255, 0.8 );
     }
-    .led-circle:hover {
+    .led:hover {
       outline: 1px solid var( --accent-color );
+    }
+    .led-h {
+      width: 48px;
+      height: 6px;
+    }
+    .led-v {
+      width: 6px;
+      height: 48px;
     }
     .actions {
       display: flex;
@@ -459,10 +465,18 @@ export class EleksmakerGifEditor extends LitElement {
     const atMax = ( this.frames.length + 1 ) * CHARS_PER_FRAME > MAX_CHARS;
 
     /**
-     * Render a single circle LED at index i.
+     * Render a circle LED as a horizontal bar (top/bottom sides).
      */
-    const led = ( i: number ) => html`
-      <div class="led-circle ${ f.circle[ i ] ? 'on' : '' }"
+    const ledH = ( i: number ) => html`
+      <div class="led led-h ${ f.circle[ i ] ? 'on' : '' }"
+           @click=${ () => this.toggleCircle( i ) }></div>
+    `;
+
+    /**
+     * Render a circle LED as a vertical bar (left/right sides).
+     */
+    const ledV = ( i: number ) => html`
+      <div class="led led-v ${ f.circle[ i ] ? 'on' : '' }"
            @click=${ () => this.toggleCircle( i ) }></div>
     `;
 
@@ -489,11 +503,11 @@ export class EleksmakerGifEditor extends LitElement {
 
           <div class="display-area">
             <div class="horizontal-side">
-              ${ led( 0 ) }${ led( 1 ) }${ led( 2 ) }
+              ${ ledH( 0 ) }${ ledH( 1 ) }${ ledH( 2 ) }
             </div>
             <div class="middle-row">
               <div class="vertical-side">
-                ${ led( 11 ) }${ led( 10 ) }${ led( 9 ) }
+                ${ ledV( 11 ) }${ ledV( 10 ) }${ ledV( 9 ) }
               </div>
               <div class="matrix">
                 ${ f.matrix.flat().map( ( on, idx ) => {
@@ -506,11 +520,11 @@ export class EleksmakerGifEditor extends LitElement {
                 } ) }
               </div>
               <div class="vertical-side">
-                ${ led( 3 ) }${ led( 4 ) }${ led( 5 ) }
+                ${ ledV( 3 ) }${ ledV( 4 ) }${ ledV( 5 ) }
               </div>
             </div>
             <div class="horizontal-side">
-              ${ led( 8 ) }${ led( 7 ) }${ led( 6 ) }
+              ${ ledH( 8 ) }${ ledH( 7 ) }${ ledH( 6 ) }
             </div>
           </div>
 
