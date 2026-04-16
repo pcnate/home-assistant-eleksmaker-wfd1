@@ -377,17 +377,23 @@ void EleksWFD::animate() {
           if ( gif_plays_remaining_ == 0 ) should_clear = true;
         }
 
-        // global count (input_number); decrement if > 0, clear when it hits 0
-        int global_count = 0;
-        if ( gif_play_count_global_ != nullptr && gif_play_count_global_->has_state() ) {
-          global_count = static_cast<int>( gif_play_count_global_->state );
+        // global count — tracked locally so it works regardless of whether the
+        // HA service-call sync succeeds. Snapshot the sensor on first cycle end
+        // after a new animation loads; after that, the local counter is the
+        // source of truth. HA is updated best-effort for visibility.
+        if ( gif_global_remaining_ < 0 ) {
+          int snapshot = 0;
+          if ( gif_play_count_global_ != nullptr && gif_play_count_global_->has_state() ) {
+            snapshot = static_cast<int>( gif_play_count_global_->state );
+          }
+          gif_global_remaining_ = snapshot > 0 ? snapshot : 0;
         }
-        if ( global_count > 0 ) {
-          int new_global = global_count - 1;
+        if ( gif_global_remaining_ > 0 ) {
+          gif_global_remaining_--;
 #if defined( USE_API ) && defined( USE_API_HOMEASSISTANT_SERVICES )
           if ( api::global_api_server != nullptr ) {
             static char global_value_buf[ 8 ];
-            snprintf( global_value_buf, sizeof( global_value_buf ), "%d", new_global );
+            snprintf( global_value_buf, sizeof( global_value_buf ), "%d", gif_global_remaining_ );
             api::HomeassistantActionRequest dec_req;
             dec_req.service = StringRef( "input_number.set_value" );
             dec_req.data.init( 2 );
@@ -400,7 +406,8 @@ void EleksWFD::animate() {
             api::global_api_server->send_homeassistant_action( dec_req );
           }
 #endif
-          if ( new_global == 0 ) should_clear = true;
+          ESP_LOGI( TAG, "Global play count: %d remaining", gif_global_remaining_ );
+          if ( gif_global_remaining_ == 0 ) should_clear = true;
         }
       }
 
@@ -1356,6 +1363,7 @@ void EleksWFD::parseGifData( const std::string &data ) {
   gif_last_frame_time_ = esp_timer_get_time();
   gif_play_count_ = 0;
   gif_plays_remaining_ = 0;
+  gif_global_remaining_ = -1;   // re-snapshot the sensor on next cycle end
   gif_done_ = false;
 
   // new format: 2 prefix chars (12-bit play count) + N * 11 chars of frames

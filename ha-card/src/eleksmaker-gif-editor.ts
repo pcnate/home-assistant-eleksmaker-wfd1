@@ -14,6 +14,12 @@ interface Frame {
 
 const TIMING_LABELS = [ '50ms', '100ms', '200ms', '500ms' ];
 const TIMING_MS = [ 50, 100, 200, 500 ];
+const LED_POS = [
+  'led-top-0', 'led-top-1', 'led-top-2',
+  'led-right-3', 'led-right-4', 'led-right-5',
+  'led-bottom-6', 'led-bottom-7', 'led-bottom-8',
+  'led-left-9', 'led-left-10', 'led-left-11',
+];
 const MAX_CHARS = 255;
 const CHARS_PER_FRAME = 11;
 const PRESET_SLOTS = 10;
@@ -33,7 +39,9 @@ export class EleksmakerGifEditor extends LitElement {
   @state() private lastLoadedValue = '';
   @state() private selectedSlot = 1;
   @state() private playCount = 0; // per-animation play count baked into the first 2 chars (0 = loop)
-  @state() private previewIdx = 0; // current frame in the looping preview
+  // previewIdx intentionally NOT @state — we paint the preview imperatively on
+  // each tick to avoid re-rendering the whole card every 50-500ms
+  private previewIdx = 0;
   private previewTimer: any = null;
 
 
@@ -113,9 +121,8 @@ export class EleksmakerGifEditor extends LitElement {
     .stage {
       display: flex;
       align-items: flex-start;
-      gap: 24px;
+      gap: 4px;
       margin: 8px 0;
-      flex-wrap: wrap;
     }
     .display-area,
     .preview-area {
@@ -123,6 +130,7 @@ export class EleksmakerGifEditor extends LitElement {
       width: 216px;    /* 168 matrix + 2*(12 border + 12 gap) */
       height: 216px;
       background: #1a1a1a;
+      flex: 0 0 auto;
     }
     .preview-label {
       font-size: 12px;
@@ -175,33 +183,36 @@ export class EleksmakerGifEditor extends LitElement {
       filter: brightness( 1.3 );
     }
 
-    /* Top row: 72 px wide, 12 px tall, three segments */
+    /* Top row: 72 px wide, 12 px tall, three segments.
+       Corner LEDs round their outer corner so the panel's outer corner is
+       curved when either adjacent LED is lit; inner edges stay straight so
+       adjacent lit LEDs meet cleanly with no seam. */
     .led-top-0 { top: 0; left: 0;    width: 72px; height: 12px;
-      clip-path: polygon( 0 0, 100% 0, 100% 100%, 12px 100% ); }
+      border-top-left-radius: 12px; }
     .led-top-1 { top: 0; left: 72px; width: 72px; height: 12px; }
     .led-top-2 { top: 0; left: 144px; width: 72px; height: 12px;
-      clip-path: polygon( 0 0, 100% 0, calc( 100% - 12px ) 100%, 0 100% ); }
+      border-top-right-radius: 12px; }
 
     /* Right column: 12 px wide, 72 px tall */
     .led-right-3 { top: 0;    left: 204px; width: 12px; height: 72px;
-      clip-path: polygon( 100% 0, 100% 100%, 0 100%, 0 12px ); }
+      border-top-right-radius: 12px; }
     .led-right-4 { top: 72px; left: 204px; width: 12px; height: 72px; }
     .led-right-5 { top: 144px; left: 204px; width: 12px; height: 72px;
-      clip-path: polygon( 0 0, 100% 0, 100% 100%, 0 calc( 100% - 12px ) ); }
+      border-bottom-right-radius: 12px; }
 
     /* Bottom row (display L→R uses array indices 8, 7, 6) */
     .led-bottom-8 { bottom: 0; left: 0;    width: 72px; height: 12px;
-      clip-path: polygon( 12px 0, 100% 0, 100% 100%, 0 100% ); }
+      border-bottom-left-radius: 12px; }
     .led-bottom-7 { bottom: 0; left: 72px; width: 72px; height: 12px; }
     .led-bottom-6 { bottom: 0; left: 144px; width: 72px; height: 12px;
-      clip-path: polygon( 0 0, calc( 100% - 12px ) 0, 100% 100%, 0 100% ); }
+      border-bottom-right-radius: 12px; }
 
     /* Left column (display T→B uses array indices 11, 10, 9) */
     .led-left-11 { top: 0;    left: 0; width: 12px; height: 72px;
-      clip-path: polygon( 0 0, 100% 12px, 100% 100%, 0 100% ); }
+      border-top-left-radius: 12px; }
     .led-left-10 { top: 72px; left: 0; width: 12px; height: 72px; }
     .led-left-9  { top: 144px; left: 0; width: 12px; height: 72px;
-      clip-path: polygon( 0 0, 100% 0, 100% calc( 100% - 12px ), 0 100% ); }
+      border-bottom-left-radius: 12px; }
     .actions {
       display: flex;
       gap: 8px;
@@ -264,12 +275,13 @@ export class EleksmakerGifEditor extends LitElement {
 
 
   /**
-   * Advance to the next frame in the preview loop, scheduling the following
-   * advance based on the current frame's timing preset.
+   * Advance to the next preview frame, paint it imperatively (no Lit
+   * re-render), and schedule the next tick based on its timing preset.
    */
   private stepPreview = (): void => {
     if ( this.frames.length === 0 ) { this.previewTimer = null; return; }
     this.previewIdx = ( this.previewIdx + 1 ) % this.frames.length;
+    this.paintPreview();
     const nextMs = TIMING_MS[ this.frames[ this.previewIdx ].timing ];
     this.previewTimer = setTimeout( this.stepPreview, nextMs );
   };
@@ -279,6 +291,7 @@ export class EleksmakerGifEditor extends LitElement {
     this.stopPreview();
     if ( this.frames.length === 0 ) return;
     if ( this.previewIdx >= this.frames.length ) this.previewIdx = 0;
+    this.paintPreview();
     const ms = TIMING_MS[ this.frames[ this.previewIdx ].timing ];
     this.previewTimer = setTimeout( this.stepPreview, ms );
   }
@@ -288,6 +301,36 @@ export class EleksmakerGifEditor extends LitElement {
     if ( this.previewTimer !== null ) {
       clearTimeout( this.previewTimer );
       this.previewTimer = null;
+    }
+  }
+
+
+  /**
+   * Directly toggle the `on` class on preview-area DOM nodes to reflect the
+   * current preview frame. Bypasses Lit's render cycle so a 50 ms frame rate
+   * doesn't re-render the whole card.
+   */
+  private paintPreview(): void {
+    const root = this.shadowRoot;
+    if ( !root ) return;
+    const preview = root.querySelector( '.preview-area' );
+    if ( !preview ) return;
+    const f = this.frames[ this.previewIdx ];
+    if ( !f ) return;
+
+    for ( let i = 0; i < 12; i++ ) {
+      const el = preview.querySelector( `.${ LED_POS[ i ] }` );
+      if ( el ) el.classList.toggle( 'on', f.circle[ i ] );
+    }
+    const cells = preview.querySelectorAll( '.cell' );
+    for ( let i = 0; i < 49 && i < cells.length; i++ ) {
+      const r = Math.floor( i / 7 );
+      const c = i % 7;
+      cells[ i ].classList.toggle( 'on', f.matrix[ r ][ c ] );
+    }
+    const label = root.querySelector( '.preview-label' );
+    if ( label ) {
+      label.textContent = `Preview · ${ this.previewIdx + 1 }/${ this.frames.length } · ${ TIMING_LABELS[ f.timing ] }`;
     }
   }
 
@@ -446,6 +489,20 @@ export class EleksmakerGifEditor extends LitElement {
       value,
     } );
     this.lastLoadedValue = value;
+  }
+
+
+  /**
+   * Update the per-animation play count and push the whole animation string
+   * (with the new prefix baked in) back to HA. Skips the save if the value
+   * hasn't actually changed.
+   */
+  private setPlayCount( value: number ): void {
+    if ( !isFinite( value ) ) return;
+    const n = Math.max( 0, Math.min( 4095, Math.round( value ) ) );
+    if ( n === this.playCount ) return;
+    this.playCount = n;
+    void this.saveToHA();
   }
 
 
@@ -667,7 +724,7 @@ export class EleksmakerGifEditor extends LitElement {
                 max="4095"
                 step="1"
                 .value=${ String( this.playCount ) }
-                @change=${ ( e: Event ) => { this.playCount = Math.max( 0, Number( ( e.target as HTMLInputElement ).value ) ); } }
+                @change=${ ( e: Event ) => this.setPlayCount( Number( ( e.target as HTMLInputElement ).value ) ) }
                 style="width: 70px; padding: 4px; background: var( --card-background-color ); color: var( --primary-text-color ); border: 1px solid var( --divider-color ); border-radius: 4px;"
               >
               <span style="font-size: 13px; color: var( --secondary-text-color );">(0 = loop)</span>

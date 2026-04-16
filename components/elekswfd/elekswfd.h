@@ -164,6 +164,7 @@ namespace esphome {
       int64_t gif_last_frame_time_{0};
       uint16_t gif_play_count_{0};    // 12-bit count from first 2 chars; 0 = loop forever
       int gif_plays_remaining_{0};    // decrements each cycle; clears at 0 (only if gif_play_count_ > 0)
+      int gif_global_remaining_{-1};  // local mirror of the global counter sensor; -1 = uninitialized, 0 = disabled
       bool gif_done_{false};          // true = animation has completed its play count
 
       char upper_text[64];
