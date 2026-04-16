@@ -40,6 +40,12 @@ jobs:
           mkdir -p dist
           docker run --rm -v ${{ github.workspace }}/dist:/host eleks-rust cp /out/eleks-monitor.exe /out/eleks-tray.exe /host/
 
+      - name: Build HA Lovelace card
+        working-directory: ha-card
+        run: |
+          npm install
+          npm run build
+
       - name: Get Current Version
         id: current-version
         run: |

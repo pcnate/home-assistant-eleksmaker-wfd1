@@ -17,7 +17,14 @@
         "npmPublish": false
       }
     ],
-    "@semantic-release/github",
+    [
+      "@semantic-release/github",
+      {
+        "assets": [
+          { "path": "ha-card/dist/eleksmaker-gif-editor.js", "label": "EleksMaker GIF Editor (HA Lovelace card)" }
+        ]
+      }
+    ],
     [
       "@semantic-release/git",
       {
