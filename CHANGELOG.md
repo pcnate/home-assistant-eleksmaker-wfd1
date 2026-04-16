@@ -1,3 +1,10 @@
+# [1.0.0-rc.11](https://github.com/pcnate/home-assistant-eleksmaker-wfd1/compare/v1.0.0-rc.10...v1.0.0-rc.11) (2026-04-16)
+
+
+### Features
+
+* self destruct gif, presets & flicker rate ([c83dd6c](https://github.com/pcnate/home-assistant-eleksmaker-wfd1/commit/c83dd6cf9cf0e054f8cb87ca2c48ba2b07384d2f))
+
 # [1.0.0-rc.10](https://github.com/pcnate/home-assistant-eleksmaker-wfd1/compare/v1.0.0-rc.9...v1.0.0-rc.10) (2026-04-16)
 
 
