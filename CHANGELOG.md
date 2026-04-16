@@ -1,3 +1,10 @@
+# [1.0.0-rc.16](https://github.com/pcnate/home-assistant-eleksmaker-wfd1/compare/v1.0.0-rc.15...v1.0.0-rc.16) (2026-04-16)
+
+
+### Features
+
+* Add preset converter; improve editor perf ([7b60f81](https://github.com/pcnate/home-assistant-eleksmaker-wfd1/commit/7b60f81d82f59c3b46307575ba516db8aca8393e))
+
 # [1.0.0-rc.15](https://github.com/pcnate/home-assistant-eleksmaker-wfd1/compare/v1.0.0-rc.14...v1.0.0-rc.15) (2026-04-16)
 
 
