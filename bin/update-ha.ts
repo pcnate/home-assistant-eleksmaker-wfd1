@@ -68,6 +68,20 @@ function encodeGifFrame( rows: number[], circle: number, timing: number ): strin
 
 
 /**
+ * Encode the 2-char animation prefix containing a 12-bit play count.
+ * 0 = loop forever. 1-4095 = play N times then clear.
+ *
+ * @param count - play count (0-4095)
+ * @returns 2-char prefix
+ */
+function encodePlayCount( count: number ): string {
+  const n = Math.max( 0, Math.min( 4095, Math.round( count ) ) );
+  return String.fromCharCode( ( n & 0x3F ) + 0x30 )
+       + String.fromCharCode( ( ( n >> 6 ) & 0x3F ) + 0x30 );
+}
+
+
+/**
  * Encode a logo frame (26 LEDs + timing).
  * 5 chars per frame.
  *
@@ -188,7 +202,7 @@ function crossFrame( theta: number ): number[] {
 const STEPS = 6;
 const SOLID_CIRCLE = 0xFFF;
 const CORNER_STEP = 3; // 45° = corners
-let gifStr = '';
+let gifStr = encodePlayCount( 0 ); // 0 = loop forever
 for ( let i = 0; i < STEPS; i++ ) {
   const theta = ( i * Math.PI / 2 ) / STEPS;
   const circle = i === CORNER_STEP ? SOLID_CIRCLE : 0;
@@ -269,7 +283,7 @@ async function main() {
   }
 
   if ( flags.gif ) {
-    console.log( `GIF  (${ gifStr.length / 11 } frames): ${ gifStr }` );
+    console.log( `GIF  (${ ( gifStr.length - 2 ) / 11 } frames): ${ gifStr }` );
     await postToHA( 'input_text.eleksmaker_gif', gifStr, { icon: 'mdi:animation', min: 0, max: 255 });
     console.log( 'GIF uploaded to input_text.eleksmaker_gif' );
   }

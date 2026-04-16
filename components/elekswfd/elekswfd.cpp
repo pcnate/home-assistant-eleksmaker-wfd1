@@ -365,17 +365,50 @@ void EleksWFD::animate() {
     int64_t gif_elapsed = ( now - gif_last_frame_time_ ) / 1000;
     uint16_t delay = gif_delays[ gif_frame_index ];
     if ( gif_elapsed >= delay ) {
-      // end of current frame
       bool at_last_frame = ( gif_frame_index == gif_frame_total - 1 );
-      bool global_clear = ( gif_clear_after_ != nullptr && gif_clear_after_->state );
-      bool should_clear = at_last_frame && ( gif_clear_after_cycle_ || global_clear );
+      bool should_clear = false;
+
+      if ( at_last_frame ) {
+        // end of a cycle — check both counters
+
+        // per-animation count
+        if ( gif_play_count_ > 0 && gif_plays_remaining_ > 0 ) {
+          gif_plays_remaining_--;
+          if ( gif_plays_remaining_ == 0 ) should_clear = true;
+        }
+
+        // global count (input_number); decrement if > 0, clear when it hits 0
+        int global_count = 0;
+        if ( gif_play_count_global_ != nullptr && gif_play_count_global_->has_state() ) {
+          global_count = static_cast<int>( gif_play_count_global_->state );
+        }
+        if ( global_count > 0 ) {
+          int new_global = global_count - 1;
+#if defined( USE_API ) && defined( USE_API_HOMEASSISTANT_SERVICES )
+          if ( api::global_api_server != nullptr ) {
+            static char global_value_buf[ 8 ];
+            snprintf( global_value_buf, sizeof( global_value_buf ), "%d", new_global );
+            api::HomeassistantActionRequest dec_req;
+            dec_req.service = StringRef( "input_number.set_value" );
+            dec_req.data.init( 2 );
+            auto &k1 = dec_req.data.emplace_back();
+            k1.key = StringRef( "entity_id" );
+            k1.value = StringRef( "input_number.eleksmaker_gif_play_count" );
+            auto &k2 = dec_req.data.emplace_back();
+            k2.key = StringRef( "value" );
+            k2.value = StringRef( global_value_buf );
+            api::global_api_server->send_homeassistant_action( dec_req );
+          }
+#endif
+          if ( new_global == 0 ) should_clear = true;
+        }
+      }
 
       if ( should_clear ) {
         gif_done_ = true;
 #if defined( USE_API ) && defined( USE_API_HOMEASSISTANT_SERVICES )
+        // clear the GIF entity so re-pushing the same value re-triggers
         if ( api::global_api_server != nullptr ) {
-          // clear the HA animation entity so re-pushing the same value counts
-          // as a state change and re-triggers the animation
           api::HomeassistantActionRequest clear_req;
           clear_req.service = StringRef( "input_text.set_value" );
           clear_req.data.init( 2 );
@@ -386,17 +419,6 @@ void EleksWFD::animate() {
           k2.key = StringRef( "value" );
           k2.value = StringRef( "" );
           api::global_api_server->send_homeassistant_action( clear_req );
-
-          // if the global flag was the trigger, turn it back off (one-shot)
-          if ( global_clear ) {
-            api::HomeassistantActionRequest off_req;
-            off_req.service = StringRef( "input_boolean.turn_off" );
-            off_req.data.init( 1 );
-            auto &kv = off_req.data.emplace_back();
-            kv.key = StringRef( "entity_id" );
-            kv.value = StringRef( "input_boolean.eleksmaker_gif_clear_after" );
-            api::global_api_server->send_homeassistant_action( off_req );
-          }
         }
 #endif
       } else {
@@ -1332,15 +1354,22 @@ void EleksWFD::parseGifData( const std::string &data ) {
   gif_frame_index = 0;
   gif_frame_total = 0;
   gif_last_frame_time_ = esp_timer_get_time();
-  gif_clear_after_cycle_ = false;
+  gif_play_count_ = 0;
+  gif_plays_remaining_ = 0;
   gif_done_ = false;
 
-  if ( data.length() < 11 ) return;
+  // new format: 2 prefix chars (12-bit play count) + N * 11 chars of frames
+  if ( data.length() < 2 + 11 ) return;
 
-  int frame_count = data.length() / 11;
+  uint8_t p_low  = static_cast<uint8_t>( data[ 0 ] ) - 0x30;
+  uint8_t p_high = static_cast<uint8_t>( data[ 1 ] ) - 0x30;
+  gif_play_count_ = ( p_low & 0x3F ) | ( ( p_high & 0x3F ) << 6 );
+  gif_plays_remaining_ = gif_play_count_;
+
+  int frame_count = ( data.length() - 2 ) / 11;
 
   for ( int f = 0; f < frame_count; f++ ) {
-    int offset = f * 11;
+    int offset = 2 + f * 11;
     uint64_t bits = 0;
 
     for ( int i = 0; i < 11; i++ ) {
@@ -1348,20 +1377,15 @@ void EleksWFD::parseGifData( const std::string &data ) {
       bits |= static_cast<uint64_t>( val & 0x3F ) << ( i * 6 );
     }
 
-    uint64_t frame = bits & 0x1FFFFFFFFFFFFFFFull; // bits 0-60: 61 LED bits
+    uint64_t frame = bits & 0x1FFFFFFFFFFFFFFFull;
     uint8_t timing_idx = ( bits >> 61 ) & 0x03;
-
-    // frame 0, bit 63 = per-animation "clear after cycle" flag
-    if ( f == 0 ) {
-      gif_clear_after_cycle_ = ( ( bits >> 63 ) & 1 ) == 1;
-    }
 
     gif_frames.push_back( frame );
     gif_delays.push_back( TIMING_PRESETS[ timing_idx ] );
   }
 
   gif_frame_total = gif_frames.size();
-  ESP_LOGI( TAG, "Parsed %d GIF frames (clear_after=%d)", gif_frame_total, gif_clear_after_cycle_ );
+  ESP_LOGI( TAG, "Parsed %d GIF frames (play_count=%u)", gif_frame_total, gif_play_count_ );
 }
 void EleksWFD::set_upper_text( text_sensor::TextSensor *sens ) {
   upper_text_ = sens;

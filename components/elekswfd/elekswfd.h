@@ -73,7 +73,7 @@ namespace esphome {
       void set_show_mic(binary_sensor::BinarySensor *sens) { show_mic_ = sens; }
       void set_show_logo(binary_sensor::BinarySensor *sens) { show_logo_ = sens; }
       void set_logo_flicker(sensor::Sensor *sens) { logo_flicker_ = sens; }
-      void set_gif_clear_after(binary_sensor::BinarySensor *sens) { gif_clear_after_ = sens; }
+      void set_gif_play_count(sensor::Sensor *sens) { gif_play_count_global_ = sens; }
 
       void set_logo_animation(text_sensor::TextSensor *sens);
       void set_gif_animation(text_sensor::TextSensor *sens);
@@ -138,7 +138,7 @@ namespace esphome {
       binary_sensor::BinarySensor *show_mic_{ nullptr };
       binary_sensor::BinarySensor *show_logo_{ nullptr };
       sensor::Sensor *logo_flicker_{ nullptr };
-      binary_sensor::BinarySensor *gif_clear_after_{ nullptr };
+      sensor::Sensor *gif_play_count_global_{ nullptr };
 
       text_sensor::TextSensor *logo_animation_{ nullptr };
       text_sensor::TextSensor *gif_animation_{ nullptr };
@@ -162,8 +162,9 @@ namespace esphome {
       int gif_frame_total{0};
       int gif_frame_index{0};
       int64_t gif_last_frame_time_{0};
-      bool gif_clear_after_cycle_{false}; // baked into frame 0 bit 63
-      bool gif_done_{false};               // true = last frame completed, display cleared
+      uint16_t gif_play_count_{0};    // 12-bit count from first 2 chars; 0 = loop forever
+      int gif_plays_remaining_{0};    // decrements each cycle; clears at 0 (only if gif_play_count_ > 0)
+      bool gif_done_{false};          // true = animation has completed its play count
 
       char upper_text[64];
       int upper_text_length_{0};

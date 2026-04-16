@@ -2,7 +2,7 @@
 
 Full stack for driving an [EleksWFD WFD1](https://eleksmaker.com/) LED display from Home Assistant: a Windows system-monitor agent that pushes sensor data, an ESP32 ESPHome component that renders it on the 24×16 TM1680 LED matrix, and a Lovelace card for editing the animations visually.
 
-![Matrix animation](docs/images/wow.gif) ![Snake animation](docs/images/snake.gif) ![Another animation](docs/images/wow2.gif)
+<img src="docs/images/wow.gif" alt="Matrix animation" width="120"> <img src="docs/images/snake.gif" alt="Snake animation" width="120"> <img src="docs/images/wow2.gif" alt="Another animation" width="120">
 
 ## Table of Contents
 

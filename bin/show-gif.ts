@@ -48,6 +48,16 @@ const CHARS_PER_FRAME = 11;
  * @param str - encoded string
  * @returns array of decoded frames with raw fields
  */
+const PREFIX_CHARS = 2;
+
+function decodePlayCount( str: string ): number {
+  if ( str.length < PREFIX_CHARS ) return 0;
+  const low  = str.charCodeAt( 0 ) - 0x30;
+  const high = str.charCodeAt( 1 ) - 0x30;
+  return ( low & 0x3F ) | ( ( high & 0x3F ) << 6 );
+}
+
+
 function decode( str: string ) {
   const frames: Array<{
     matrix: boolean[][];
@@ -56,7 +66,7 @@ function decode( str: string ) {
     clearAfter: boolean;
   }> = [];
 
-  for ( let o = 0; o + CHARS_PER_FRAME <= str.length; o += CHARS_PER_FRAME ) {
+  for ( let o = PREFIX_CHARS; o + CHARS_PER_FRAME <= str.length; o += CHARS_PER_FRAME ) {
     let bits = 0n;
     for ( let i = 0; i < CHARS_PER_FRAME; i++ ) {
       bits |= BigInt( str.charCodeAt( o + i ) - 0x30 ) << BigInt( i * 6 );
@@ -72,8 +82,7 @@ function decode( str: string ) {
       circle.push( ( ( bits >> BigInt( 49 + i ) ) & 1n ) === 1n );
     }
     const timing = Number( ( bits >> 61n ) & 0x3n );
-    const clearAfter = ( ( bits >> 63n ) & 1n ) === 1n;
-    frames.push( { matrix, circle, timing, clearAfter } );
+    frames.push( { matrix, circle, timing, clearAfter: false } );
   }
 
   return frames;
@@ -169,7 +178,7 @@ async function main() {
   console.log( `String: ${ value }` );
   console.log( `Length: ${ value.length } chars / ${ frames.length } frames` );
   if ( frames.length > 0 ) {
-    console.log( `Frame 0 clear-after flag: ${ frames[ 0 ].clearAfter ? 'YES' : 'no' }` );
+    console.log( `Play count: ${ decodePlayCount( value ) } (0 = loop)` );
     const timings = frames.map( ( f, i ) => `${ i + 1 }:${ TIMING_PRESETS[ f.timing ] }ms` );
     console.log( `Timings: ${ timings.join( ', ' ) }` );
     console.log( `Total duration: ${ frames.reduce( ( s, f ) => s + TIMING_PRESETS[ f.timing ], 0 ) }ms` );

@@ -75,9 +75,11 @@ interface Frame {
   timing: number;
 }
 
+const PREFIX_CHARS = 2;
+
 function decode( str: string ): Frame[] {
   const out: Frame[] = [];
-  for ( let o = 0; o + CHARS_PER_FRAME <= str.length; o += CHARS_PER_FRAME ) {
+  for ( let o = PREFIX_CHARS; o + CHARS_PER_FRAME <= str.length; o += CHARS_PER_FRAME ) {
     let bits = 0n;
     for ( let i = 0; i < CHARS_PER_FRAME; i++ ) {
       bits |= BigInt( str.charCodeAt( o + i ) - 0x30 ) << BigInt( i * 6 );

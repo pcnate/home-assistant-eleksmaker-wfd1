@@ -107,9 +107,10 @@ async function main() {
   await deleteHelper( ws, id++, 'input_text', 'eleksmaker_lower_2' );
   await deleteHelper( ws, id++, 'input_boolean', 'eleksmaker_logo_flicker_2' );
 
-  // deprecated: flicker is now input_number, not input_boolean
-  console.log( '=== Removing deprecated input_boolean flicker ===' );
+  // deprecated helpers — remove old versions if they exist
+  console.log( '=== Removing deprecated helpers ===' );
   await deleteHelper( ws, id++, 'input_boolean', 'eleksmaker_logo_flicker' );
+  await deleteHelper( ws, id++, 'input_boolean', 'eleksmaker_gif_clear_after' );
 
   console.log( '=== Creating persistent HA helpers ===' );
   await createHelper( ws, id++, 'input_text', { name: 'EleksMaker GIF', min: 0, max: 255, icon: 'mdi:animation' } );
@@ -126,7 +127,15 @@ async function main() {
     unit_of_measurement: 'Hz',
     mode: 'slider',
   });
-  await createHelper( ws, id++, 'input_boolean', { name: 'EleksMaker GIF Clear After', icon: 'mdi:eraser' } );
+  await createHelper( ws, id++, 'input_number', {
+    name: 'EleksMaker GIF Play Count',
+    icon: 'mdi:counter',
+    min: 0,
+    max: 100,
+    step: 1,
+    initial: 0,
+    mode: 'box',
+  });
 
   for ( let slot = 1; slot <= 10; slot++ ) {
     await createHelper( ws, id++, 'input_text', {

@@ -13,11 +13,14 @@ interface Frame {
 
 
 const TIMING_LABELS = [ '50ms', '100ms', '200ms', '500ms' ];
+const TIMING_MS = [ 50, 100, 200, 500 ];
 const MAX_CHARS = 255;
 const CHARS_PER_FRAME = 11;
 const PRESET_SLOTS = 10;
 const PRESET_ENTITY_PREFIX = 'input_text.eleksmaker_gif_preset_';
 const FLICKER_ENTITY = 'input_number.eleksmaker_logo_flicker';
+const PLAY_COUNT_ENTITY = 'input_number.eleksmaker_gif_play_count';
+const PREFIX_CHARS = 2; // 2 chars = 12-bit play count at the start of the animation string
 
 
 @customElement( 'eleksmaker-gif-editor' )
@@ -29,7 +32,9 @@ export class EleksmakerGifEditor extends LitElement {
   @state() private currentFrame = 0;
   @state() private lastLoadedValue = '';
   @state() private selectedSlot = 1;
-  @state() private clearAfter = false;
+  @state() private playCount = 0; // per-animation play count baked into the first 2 chars (0 = loop)
+  @state() private previewIdx = 0; // current frame in the looping preview
+  private previewTimer: any = null;
 
 
   /**
@@ -105,12 +110,31 @@ export class EleksmakerGifEditor extends LitElement {
       background: var( --accent-color );
     }
     /* Layout sizing: matrix cell = 24 px, border = gap = 12 px (half of cell). */
-    .display-area {
+    .stage {
+      display: flex;
+      align-items: flex-start;
+      gap: 24px;
+      margin: 8px 0;
+      flex-wrap: wrap;
+    }
+    .display-area,
+    .preview-area {
       position: relative;
       width: 216px;    /* 168 matrix + 2*(12 border + 12 gap) */
       height: 216px;
-      margin: 8px 0;
       background: #1a1a1a;
+    }
+    .preview-label {
+      font-size: 12px;
+      color: var( --secondary-text-color );
+      margin-top: 6px;
+      text-align: center;
+    }
+    /* preview uses the same sub-element classes as the editor; disable interaction */
+    .preview-area .led,
+    .preview-area .cell {
+      cursor: default;
+      pointer-events: none;
     }
     .matrix {
       position: absolute;
@@ -225,6 +249,46 @@ export class EleksmakerGifEditor extends LitElement {
         this.loadFromHA();
       }
     }
+
+    // (re)start the preview loop whenever frames change
+    if ( changed.has( 'frames' ) || this.previewTimer === null ) {
+      this.startPreview();
+    }
+  }
+
+
+  disconnectedCallback(): void {
+    super.disconnectedCallback();
+    this.stopPreview();
+  }
+
+
+  /**
+   * Advance to the next frame in the preview loop, scheduling the following
+   * advance based on the current frame's timing preset.
+   */
+  private stepPreview = (): void => {
+    if ( this.frames.length === 0 ) { this.previewTimer = null; return; }
+    this.previewIdx = ( this.previewIdx + 1 ) % this.frames.length;
+    const nextMs = TIMING_MS[ this.frames[ this.previewIdx ].timing ];
+    this.previewTimer = setTimeout( this.stepPreview, nextMs );
+  };
+
+
+  private startPreview(): void {
+    this.stopPreview();
+    if ( this.frames.length === 0 ) return;
+    if ( this.previewIdx >= this.frames.length ) this.previewIdx = 0;
+    const ms = TIMING_MS[ this.frames[ this.previewIdx ].timing ];
+    this.previewTimer = setTimeout( this.stepPreview, ms );
+  }
+
+
+  private stopPreview(): void {
+    if ( this.previewTimer !== null ) {
+      clearTimeout( this.previewTimer );
+      this.previewTimer = null;
+    }
   }
 
 
@@ -270,7 +334,7 @@ export class EleksmakerGifEditor extends LitElement {
 
 
   private addFrame(): void {
-    if ( ( this.frames.length + 1 ) * CHARS_PER_FRAME > MAX_CHARS ) return;
+    if ( PREFIX_CHARS + ( this.frames.length + 1 ) * CHARS_PER_FRAME > MAX_CHARS ) return;
     this.frames.splice( this.currentFrame + 1, 0, this.newFrame() );
     this.currentFrame++;
     this.requestUpdate();
@@ -278,7 +342,7 @@ export class EleksmakerGifEditor extends LitElement {
 
 
   private duplicateFrame(): void {
-    if ( ( this.frames.length + 1 ) * CHARS_PER_FRAME > MAX_CHARS ) return;
+    if ( PREFIX_CHARS + ( this.frames.length + 1 ) * CHARS_PER_FRAME > MAX_CHARS ) return;
     const src = this.frames[ this.currentFrame ];
     const copy: Frame = {
       matrix: src.matrix.map( row => [ ...row ] ),
@@ -313,9 +377,12 @@ export class EleksmakerGifEditor extends LitElement {
    * @returns encoded string
    */
   private encode(): string {
-    let out = '';
-    for ( let fi = 0; fi < this.frames.length; fi++ ) {
-      const f = this.frames[ fi ];
+    // prefix: 2 chars encoding a 12-bit play count (low 6 bits, then high 6 bits)
+    const pc = Math.max( 0, Math.min( 4095, Math.round( this.playCount ) ) );
+    let out = String.fromCharCode( ( pc & 0x3F ) + 0x30 )
+            + String.fromCharCode( ( ( pc >> 6 ) & 0x3F ) + 0x30 );
+
+    for ( const f of this.frames ) {
       let bits = 0n;
       for ( let r = 0; r < 7; r++ ) {
         for ( let c = 0; c < 7; c++ ) {
@@ -326,8 +393,6 @@ export class EleksmakerGifEditor extends LitElement {
         if ( f.circle[ i ] ) bits |= 1n << BigInt( 49 + i );
       }
       bits |= BigInt( f.timing ) << 61n;
-      // bit 63 of frame 0 = "clear after cycle" flag
-      if ( fi === 0 && this.clearAfter ) bits |= 1n << 63n;
       for ( let i = 0; i < CHARS_PER_FRAME; i++ ) {
         const v = Number( ( bits >> BigInt( i * 6 ) ) & 0x3Fn );
         out += String.fromCharCode( v + 0x30 );
@@ -345,8 +410,15 @@ export class EleksmakerGifEditor extends LitElement {
    */
   private decode( str: string ): Frame[] {
     const out: Frame[] = [];
-    this.clearAfter = false;
-    for ( let o = 0; o + CHARS_PER_FRAME <= str.length; o += CHARS_PER_FRAME ) {
+    this.playCount = 0;
+
+    if ( str.length >= PREFIX_CHARS ) {
+      const low  = str.charCodeAt( 0 ) - 0x30;
+      const high = str.charCodeAt( 1 ) - 0x30;
+      this.playCount = ( low & 0x3F ) | ( ( high & 0x3F ) << 6 );
+    }
+
+    for ( let o = PREFIX_CHARS; o + CHARS_PER_FRAME <= str.length; o += CHARS_PER_FRAME ) {
       let bits = 0n;
       for ( let i = 0; i < CHARS_PER_FRAME; i++ ) {
         bits |= BigInt( str.charCodeAt( o + i ) - 0x30 ) << BigInt( i * 6 );
@@ -361,8 +433,6 @@ export class EleksmakerGifEditor extends LitElement {
         f.circle[ i ] = ( ( bits >> BigInt( 49 + i ) ) & 1n ) === 1n;
       }
       f.timing = Number( ( bits >> 61n ) & 0x3n ) as 0 | 1 | 2 | 3;
-      // read clear-after flag from frame 0 bit 63
-      if ( o === 0 ) this.clearAfter = ( ( bits >> 63n ) & 1n ) === 1n;
       out.push( f );
     }
     return out.length ? out : [ this.newFrame() ];
@@ -462,12 +532,34 @@ export class EleksmakerGifEditor extends LitElement {
   }
 
 
+  /**
+   * Current global play-count from HA (0 = disabled, N = play N more cycles
+   * across any loaded animation; firmware decrements each cycle and clears
+   * the GIF entity when it hits 0).
+   */
+  private globalPlayCount(): number {
+    const v = this.hass?.states?.[ PLAY_COUNT_ENTITY ]?.state;
+    const n = v != null ? Number( v ) : 0;
+    return isFinite( n ) ? n : 0;
+  }
+
+
+  private async setGlobalPlayCount( value: number ): Promise<void> {
+    if ( !isFinite( value ) ) return;
+    const clamped = Math.max( 0, Math.min( 100, Math.round( value ) ) );
+    await this.hass.callService( 'input_number', 'set_value', {
+      entity_id: PLAY_COUNT_ENTITY,
+      value: clamped,
+    });
+  }
+
+
   render() {
     if ( !this.config || !this.hass ) return html``;
     const f = this.frames[ this.currentFrame ];
     const title = this.config.title ?? 'EleksMaker GIF Editor';
-    const charCount = this.frames.length * CHARS_PER_FRAME;
-    const atMax = ( this.frames.length + 1 ) * CHARS_PER_FRAME > MAX_CHARS;
+    const charCount = PREFIX_CHARS + this.frames.length * CHARS_PER_FRAME;
+    const atMax = PREFIX_CHARS + ( this.frames.length + 1 ) * CHARS_PER_FRAME > MAX_CHARS;
 
     /**
      * Render a circle LED with a specific position class.
@@ -478,6 +570,15 @@ export class EleksmakerGifEditor extends LitElement {
     const led = ( idx: number, posClass: string ) => html`
       <div class="led ${ posClass } ${ f.circle[ idx ] ? 'on' : '' }"
            @click=${ () => this.toggleCircle( idx ) }></div>
+    `;
+
+    const pf = this.frames[ Math.min( this.previewIdx, this.frames.length - 1 ) ] ?? f;
+
+    /**
+     * Render a non-interactive preview LED from the current preview frame.
+     */
+    const previewLed = ( idx: number, posClass: string ) => html`
+      <div class="led ${ posClass } ${ pf.circle[ idx ] ? 'on' : '' }"></div>
     `;
 
     return html`
@@ -501,29 +602,57 @@ export class EleksmakerGifEditor extends LitElement {
             ` ) }
           </div>
 
-          <div class="display-area">
-            ${ led( 0,  'led-top-0' ) }
-            ${ led( 1,  'led-top-1' ) }
-            ${ led( 2,  'led-top-2' ) }
-            ${ led( 3,  'led-right-3' ) }
-            ${ led( 4,  'led-right-4' ) }
-            ${ led( 5,  'led-right-5' ) }
-            ${ led( 6,  'led-bottom-6' ) }
-            ${ led( 7,  'led-bottom-7' ) }
-            ${ led( 8,  'led-bottom-8' ) }
-            ${ led( 9,  'led-left-9' ) }
-            ${ led( 10, 'led-left-10' ) }
-            ${ led( 11, 'led-left-11' ) }
+          <div class="stage">
+            <div class="display-area">
+              ${ led( 0,  'led-top-0' ) }
+              ${ led( 1,  'led-top-1' ) }
+              ${ led( 2,  'led-top-2' ) }
+              ${ led( 3,  'led-right-3' ) }
+              ${ led( 4,  'led-right-4' ) }
+              ${ led( 5,  'led-right-5' ) }
+              ${ led( 6,  'led-bottom-6' ) }
+              ${ led( 7,  'led-bottom-7' ) }
+              ${ led( 8,  'led-bottom-8' ) }
+              ${ led( 9,  'led-left-9' ) }
+              ${ led( 10, 'led-left-10' ) }
+              ${ led( 11, 'led-left-11' ) }
 
-            <div class="matrix">
-              ${ f.matrix.flat().map( ( on, idx ) => {
-                const r = Math.floor( idx / 7 );
-                const c = idx % 7;
-                return html`
-                  <div class="cell ${ on ? 'on' : '' }"
-                       @click=${ () => this.toggleCell( r, c ) }></div>
-                `;
-              } ) }
+              <div class="matrix">
+                ${ f.matrix.flat().map( ( on, idx ) => {
+                  const r = Math.floor( idx / 7 );
+                  const c = idx % 7;
+                  return html`
+                    <div class="cell ${ on ? 'on' : '' }"
+                         @click=${ () => this.toggleCell( r, c ) }></div>
+                  `;
+                } ) }
+              </div>
+            </div>
+
+            <div>
+              <div class="preview-area">
+                ${ previewLed( 0,  'led-top-0' ) }
+                ${ previewLed( 1,  'led-top-1' ) }
+                ${ previewLed( 2,  'led-top-2' ) }
+                ${ previewLed( 3,  'led-right-3' ) }
+                ${ previewLed( 4,  'led-right-4' ) }
+                ${ previewLed( 5,  'led-right-5' ) }
+                ${ previewLed( 6,  'led-bottom-6' ) }
+                ${ previewLed( 7,  'led-bottom-7' ) }
+                ${ previewLed( 8,  'led-bottom-8' ) }
+                ${ previewLed( 9,  'led-left-9' ) }
+                ${ previewLed( 10, 'led-left-10' ) }
+                ${ previewLed( 11, 'led-left-11' ) }
+
+                <div class="matrix">
+                  ${ pf.matrix.flat().map( on => html`
+                    <div class="cell ${ on ? 'on' : '' }"></div>
+                  ` ) }
+                </div>
+              </div>
+              <div class="preview-label">
+                Preview · ${ this.previewIdx + 1 }/${ this.frames.length } · ${ TIMING_LABELS[ pf.timing ] }
+              </div>
             </div>
           </div>
 
@@ -531,12 +660,17 @@ export class EleksmakerGifEditor extends LitElement {
             <button @click=${ this.saveToHA }>Save to HA</button>
             <button class="secondary" @click=${ this.loadFromHA }>Reload from HA</button>
             <label style="display: flex; align-items: center; gap: 4px; margin-left: 8px;">
+              <span>Play count:</span>
               <input
-                type="checkbox"
-                .checked=${ this.clearAfter }
-                @change=${ ( e: Event ) => { this.clearAfter = ( e.target as HTMLInputElement ).checked; } }
+                type="number"
+                min="0"
+                max="4095"
+                step="1"
+                .value=${ String( this.playCount ) }
+                @change=${ ( e: Event ) => { this.playCount = Math.max( 0, Number( ( e.target as HTMLInputElement ).value ) ); } }
+                style="width: 70px; padding: 4px; background: var( --card-background-color ); color: var( --primary-text-color ); border: 1px solid var( --divider-color ); border-radius: 4px;"
               >
-              <span>Clear after last frame</span>
+              <span style="font-size: 13px; color: var( --secondary-text-color );">(0 = loop)</span>
             </label>
           </div>
 
@@ -567,6 +701,20 @@ export class EleksmakerGifEditor extends LitElement {
               style="width: 70px; padding: 6px; background: var( --card-background-color ); color: var( --primary-text-color ); border: 1px solid var( --divider-color ); border-radius: 4px;"
             >
             <span style="font-size: 13px; color: var( --secondary-text-color );">flickers/sec (0 = off)</span>
+          </div>
+
+          <div class="presets">
+            <div class="presets-label">Global play count</div>
+            <input
+              type="number"
+              min="0"
+              max="100"
+              step="1"
+              .value=${ String( this.globalPlayCount() ) }
+              @change=${ ( e: Event ) => this.setGlobalPlayCount( Number( ( e.target as HTMLInputElement ).value ) ) }
+              style="width: 70px; padding: 6px; background: var( --card-background-color ); color: var( --primary-text-color ); border: 1px solid var( --divider-color ); border-radius: 4px;"
+            >
+            <span style="font-size: 13px; color: var( --secondary-text-color );">cycles (0 = disabled, decrements each loop)</span>
           </div>
 
           <div class="meta ${ charCount > MAX_CHARS ? 'warn' : '' }">
