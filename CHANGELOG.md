@@ -1,3 +1,21 @@
+# [1.0.0-rc.7](https://github.com/pcnate/home-assistant-eleksmaker-wfd1/compare/v1.0.0-rc.6...v1.0.0-rc.7) (2026-04-16)
+
+
+### Bug Fixes
+
+* correct positions of LEDs 4-11 in logo ([af71458](https://github.com/pcnate/home-assistant-eleksmaker-wfd1/commit/af71458414b980cbf7b06317944da36af70196f6))
+* fix letter d artifact ([28393bb](https://github.com/pcnate/home-assistant-eleksmaker-wfd1/commit/28393bbc5d82bf57e54730a1823f89b655a5a42e))
+
+
+### Features
+
+* add flicker feature to logo ([9ca3cae](https://github.com/pcnate/home-assistant-eleksmaker-wfd1/commit/9ca3caece3ea5ff1ae2cb7f6a9d102e772fda379))
+* Add HA helpers creator and use helpers ([43d8099](https://github.com/pcnate/home-assistant-eleksmaker-wfd1/commit/43d80992fecae6b2cba7f790e1d315a1ee8d6b3c))
+* add lower text to override the clock ([76d3314](https://github.com/pcnate/home-assistant-eleksmaker-wfd1/commit/76d33148fafa138c0aa17bb2af651994654850e5))
+* add upper text sensor and OTA indication ([97b94d1](https://github.com/pcnate/home-assistant-eleksmaker-wfd1/commit/97b94d1de3d28db001a37b8fb89fba0414fb3691))
+* support HA based animation strings ([61d1bb7](https://github.com/pcnate/home-assistant-eleksmaker-wfd1/commit/61d1bb76c5ee4880658fad179a120d983b8db193))
+* update flicker setting to flicker anything ([7275d7d](https://github.com/pcnate/home-assistant-eleksmaker-wfd1/commit/7275d7d074a5ef45b8df1ead47aef121c1bd20ee))
+
 # [1.0.0-rc.6](https://github.com/pcnate/home-assistant-eleksmaker-wfd1/compare/v1.0.0-rc.5...v1.0.0-rc.6) (2026-04-11)
 
 
