@@ -17,6 +17,8 @@
 #include "esphome/components/sensor/sensor.h"
 #include "esphome/components/text_sensor/text_sensor.h"
 #include "esphome/components/binary_sensor/binary_sensor.h"
+#include "esphome/components/api/api_server.h"
+#include "esphome/components/api/api_pb2.h"
 #ifdef __INTELLISENSE__
 #pragma diag_default 1696
 #endif
@@ -358,13 +360,32 @@ void EleksWFD::animate() {
   }
 
   // gif animation -- per-frame timing from encoded data
-  if ( gif_frame_total > 0 ) {
+  if ( gif_frame_total > 0 && !gif_done_ ) {
     int64_t gif_elapsed = ( now - gif_last_frame_time_ ) / 1000;
     uint16_t delay = gif_delays[ gif_frame_index ];
     if ( gif_elapsed >= delay ) {
-      gif_frame_index++;
-      if ( gif_frame_index >= gif_frame_total ) {
-        gif_frame_index = 0;
+      // end of current frame
+      bool at_last_frame = ( gif_frame_index == gif_frame_total - 1 );
+      bool global_clear = ( gif_clear_after_ != nullptr && gif_clear_after_->state );
+      bool should_clear = at_last_frame && ( gif_clear_after_cycle_ || global_clear );
+
+      if ( should_clear ) {
+        gif_done_ = true;
+        // if the global flag was the trigger, turn it back off (one-shot behaviour)
+        if ( global_clear ) {
+          api::HomeassistantActionRequest req;
+          req.service = StringRef( "input_boolean.turn_off" );
+          req.data.init( 1 );
+          auto &kv = req.data.emplace_back();
+          kv.key = StringRef( "entity_id" );
+          kv.value = StringRef( "input_boolean.eleksmaker_gif_clear_after" );
+          api::global_api_server->send_homeassistant_action( req );
+        }
+      } else {
+        gif_frame_index++;
+        if ( gif_frame_index >= gif_frame_total ) {
+          gif_frame_index = 0;
+        }
       }
       gif_last_frame_time_ = now;
     }
@@ -388,8 +409,8 @@ void EleksWFD::renderGIF() {
     esphome::elekswfd::display::matrix::ROW_6,
   };
 
-  if ( gif_frame_total == 0 ) {
-    // no frames loaded -- blank the matrix and circle
+  if ( gif_frame_total == 0 || gif_done_ ) {
+    // no frames loaded or animation finished -- blank the matrix and circle
     for ( int row = 0; row < 7; row++ ) {
       for ( int col = 0; col < 7; col++ ) {
         display_elements[ ROWS[ row ][ col ] ] = false;
@@ -544,11 +565,18 @@ void EleksWFD::applyFlicker() {
     }
   }
 
-  if ( logo_flicker_ == nullptr || !logo_flicker_->state ) return;
+  // flicker rate in flickers-per-second from HA input_number (default 0)
+  if ( logo_flicker_ == nullptr || !logo_flicker_->has_state() ) return;
+  float rate = logo_flicker_->state;
+  if ( rate <= 0.0f ) return;
 
-  // add at most one new flicker per tick with moderate probability
+  // probability per 10ms tick = rate / 100 (since we tick 100x/sec)
+  // threshold out of 256 = ( rate * 256 ) / 100
+  int threshold = static_cast<int>( ( rate * 256.0f ) / 100.0f );
+  if ( threshold > 256 ) threshold = 256;
+
   uint32_t rand = esp_random();
-  if ( ( rand & 0xFF ) < 60 ) { // ~23% chance per tick
+  if ( static_cast<int>( rand & 0xFF ) < threshold ) {
     int led = flicker_leds_[ ( rand >> 8 ) % flicker_leds_.size() ];
     if ( display_elements[ led ] ) {
       display_elements[ led ] = false;
@@ -560,7 +588,30 @@ void EleksWFD::applyFlicker() {
 
 void EleksWFD::renderUpperText() {
   if ( ota_active_ ) return;
-  if ( upper_text_length_ == 0 ) return;
+
+  // no user text -> show date as "MMM DD" (APR 16, MAR  1)
+  if ( upper_text_length_ == 0 ) {
+    static const char *MONTHS[] = {
+      "JAN", "FEB", "MAR", "APR", "MAY", "JUN",
+      "JUL", "AUG", "SEP", "OCT", "NOV", "DEC",
+    };
+    if ( time_ != nullptr ) {
+      auto t = time_->now();
+      if ( t.is_valid() && t.month >= 1 && t.month <= 12 ) {
+        const char *m = MONTHS[ t.month - 1 ];
+        writeUpperDigit( 1, m[ 0 ] );
+        writeUpperDigit( 2, m[ 1 ] );
+        writeUpperDigit( 3, m[ 2 ] );
+        writeUpperDigit( 4, ' ' );
+        writeUpperDigit( 5, t.day_of_month >= 10 ? static_cast<char>( ( t.day_of_month / 10 ) + '0' ) : ' ' );
+        writeUpperDigit( 6, static_cast<char>( ( t.day_of_month % 10 ) + '0' ) );
+        return;
+      }
+    }
+    // no valid time - blank the digits
+    for ( int i = 1; i <= 6; i++ ) writeUpperDigit( i, ' ' );
+    return;
+  }
 
   int64_t now = esp_timer_get_time();
 
@@ -1254,6 +1305,8 @@ void EleksWFD::parseGifData( const std::string &data ) {
   gif_frame_index = 0;
   gif_frame_total = 0;
   gif_last_frame_time_ = esp_timer_get_time();
+  gif_clear_after_cycle_ = false;
+  gif_done_ = false;
 
   if ( data.length() < 11 ) return;
 
@@ -1271,12 +1324,17 @@ void EleksWFD::parseGifData( const std::string &data ) {
     uint64_t frame = bits & 0x1FFFFFFFFFFFFFFFull; // bits 0-60: 61 LED bits
     uint8_t timing_idx = ( bits >> 61 ) & 0x03;
 
+    // frame 0, bit 63 = per-animation "clear after cycle" flag
+    if ( f == 0 ) {
+      gif_clear_after_cycle_ = ( ( bits >> 63 ) & 1 ) == 1;
+    }
+
     gif_frames.push_back( frame );
     gif_delays.push_back( TIMING_PRESETS[ timing_idx ] );
   }
 
   gif_frame_total = gif_frames.size();
-  ESP_LOGI( TAG, "Parsed %d GIF frames", gif_frame_total );
+  ESP_LOGI( TAG, "Parsed %d GIF frames (clear_after=%d)", gif_frame_total, gif_clear_after_cycle_ );
 }
 void EleksWFD::set_upper_text( text_sensor::TextSensor *sens ) {
   upper_text_ = sens;

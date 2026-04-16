@@ -110,6 +110,9 @@ async function postToHA( entityId: string, value: string, attrs: Record<string, 
     const action = value === 'on' ? 'turn_on' : 'turn_off';
     serviceUrl = `${ HA_URL }/api/services/input_boolean/${ action }`;
     serviceBody = JSON.stringify( { entity_id: entityId } );
+  } else if ( domain === 'input_number' ) {
+    serviceUrl = `${ HA_URL }/api/services/input_number/set_value`;
+    serviceBody = JSON.stringify( { entity_id: entityId, value: Number( value ) } );
   }
 
   if ( serviceUrl ) {
@@ -290,8 +293,9 @@ async function main() {
   }
 
   if ( flags.flicker ) {
-    await postToHA( 'input_boolean.eleksmaker_logo_flicker', 'on', { friendly_name: 'EleksMaker Logo Flicker', icon: 'mdi:flash' });
-    console.log( 'Logo flicker: on' );
+    // flicker is now a rate in Hz (flickers per second), default 0
+    await postToHA( 'input_number.eleksmaker_logo_flicker', '25', { friendly_name: 'EleksMaker Logo Flicker', icon: 'mdi:flash' });
+    console.log( 'Logo flicker: 25 Hz' );
   }
 }
 

@@ -17,6 +17,7 @@ const MAX_CHARS = 255;
 const CHARS_PER_FRAME = 11;
 const PRESET_SLOTS = 10;
 const PRESET_ENTITY_PREFIX = 'input_text.eleksmaker_gif_preset_';
+const FLICKER_ENTITY = 'input_number.eleksmaker_logo_flicker';
 
 
 @customElement( 'eleksmaker-gif-editor' )
@@ -28,6 +29,7 @@ export class EleksmakerGifEditor extends LitElement {
   @state() private currentFrame = 0;
   @state() private lastLoadedValue = '';
   @state() private selectedSlot = 1;
+  @state() private clearAfter = false;
 
 
   /**
@@ -301,7 +303,8 @@ export class EleksmakerGifEditor extends LitElement {
    */
   private encode(): string {
     let out = '';
-    for ( const f of this.frames ) {
+    for ( let fi = 0; fi < this.frames.length; fi++ ) {
+      const f = this.frames[ fi ];
       let bits = 0n;
       for ( let r = 0; r < 7; r++ ) {
         for ( let c = 0; c < 7; c++ ) {
@@ -312,6 +315,8 @@ export class EleksmakerGifEditor extends LitElement {
         if ( f.circle[ i ] ) bits |= 1n << BigInt( 49 + i );
       }
       bits |= BigInt( f.timing ) << 61n;
+      // bit 63 of frame 0 = "clear after cycle" flag
+      if ( fi === 0 && this.clearAfter ) bits |= 1n << 63n;
       for ( let i = 0; i < CHARS_PER_FRAME; i++ ) {
         const v = Number( ( bits >> BigInt( i * 6 ) ) & 0x3Fn );
         out += String.fromCharCode( v + 0x30 );
@@ -329,6 +334,7 @@ export class EleksmakerGifEditor extends LitElement {
    */
   private decode( str: string ): Frame[] {
     const out: Frame[] = [];
+    this.clearAfter = false;
     for ( let o = 0; o + CHARS_PER_FRAME <= str.length; o += CHARS_PER_FRAME ) {
       let bits = 0n;
       for ( let i = 0; i < CHARS_PER_FRAME; i++ ) {
@@ -344,6 +350,8 @@ export class EleksmakerGifEditor extends LitElement {
         f.circle[ i ] = ( ( bits >> BigInt( 49 + i ) ) & 1n ) === 1n;
       }
       f.timing = Number( ( bits >> 61n ) & 0x3n ) as 0 | 1 | 2 | 3;
+      // read clear-after flag from frame 0 bit 63
+      if ( o === 0 ) this.clearAfter = ( ( bits >> 63n ) & 1n ) === 1n;
       out.push( f );
     }
     return out.length ? out : [ this.newFrame() ];
@@ -423,6 +431,26 @@ export class EleksmakerGifEditor extends LitElement {
   }
 
 
+  /**
+   * Current flicker rate from HA (flickers per second).
+   */
+  private flickerRate(): number {
+    const v = this.hass?.states?.[ FLICKER_ENTITY ]?.state;
+    const n = v != null ? Number( v ) : 0;
+    return isFinite( n ) ? n : 0;
+  }
+
+
+  private async setFlickerRate( value: number ): Promise<void> {
+    if ( !isFinite( value ) ) return;
+    const clamped = Math.max( 0, Math.min( 100, Math.round( value ) ) );
+    await this.hass.callService( 'input_number', 'set_value', {
+      entity_id: FLICKER_ENTITY,
+      value: clamped,
+    });
+  }
+
+
   render() {
     if ( !this.config || !this.hass ) return html``;
     const f = this.frames[ this.currentFrame ];
@@ -489,6 +517,14 @@ export class EleksmakerGifEditor extends LitElement {
           <div class="actions">
             <button @click=${ this.saveToHA }>Save to HA</button>
             <button class="secondary" @click=${ this.loadFromHA }>Reload from HA</button>
+            <label style="display: flex; align-items: center; gap: 4px; margin-left: 8px;">
+              <input
+                type="checkbox"
+                .checked=${ this.clearAfter }
+                @change=${ ( e: Event ) => { this.clearAfter = ( e.target as HTMLInputElement ).checked; } }
+              >
+              <span>Clear after last frame</span>
+            </label>
           </div>
 
           <div class="presets">
@@ -504,6 +540,20 @@ export class EleksmakerGifEditor extends LitElement {
             <button @click=${ this.loadPreset } ?disabled=${ !this.presetValue( this.selectedSlot ) }>Load</button>
             <button @click=${ this.savePreset }>Save</button>
             <button class="secondary" @click=${ this.clearPreset } ?disabled=${ !this.presetValue( this.selectedSlot ) }>Clear</button>
+          </div>
+
+          <div class="presets">
+            <div class="presets-label">Flicker</div>
+            <input
+              type="number"
+              min="0"
+              max="100"
+              step="1"
+              .value=${ String( this.flickerRate() ) }
+              @change=${ ( e: Event ) => this.setFlickerRate( Number( ( e.target as HTMLInputElement ).value ) ) }
+              style="width: 70px; padding: 6px; background: var( --card-background-color ); color: var( --primary-text-color ); border: 1px solid var( --divider-color ); border-radius: 4px;"
+            >
+            <span style="font-size: 13px; color: var( --secondary-text-color );">flickers/sec (0 = off)</span>
           </div>
 
           <div class="meta ${ charCount > MAX_CHARS ? 'warn' : '' }">
