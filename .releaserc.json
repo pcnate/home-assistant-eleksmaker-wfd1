@@ -21,14 +21,14 @@
       "@semantic-release/github",
       {
         "assets": [
-          { "path": "ha-card/dist/eleksmaker-gif-editor.js", "label": "EleksMaker GIF Editor (HA Lovelace card)" }
+          { "path": "dist/eleksmaker-gif-editor.js", "label": "EleksMaker GIF Editor (HA Lovelace card)" }
         ]
       }
     ],
     [
       "@semantic-release/git",
       {
-        "assets": ["package.json", "package-lock.json", "CHANGELOG.md"],
+        "assets": ["package.json", "package-lock.json", "CHANGELOG.md", "dist/eleksmaker-gif-editor.js"],
         "message": "chore(release): ${nextRelease.version} [skip ci]\n\n${nextRelease.notes}"
       }
     ]

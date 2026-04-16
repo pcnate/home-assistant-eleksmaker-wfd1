@@ -46,6 +46,11 @@ jobs:
           npm install
           npm run build
 
+      - name: Stage HA card for HACS
+        run: |
+          mkdir -p dist
+          cp ha-card/dist/eleksmaker-gif-editor.js dist/eleksmaker-gif-editor.js
+
       - name: Get Current Version
         id: current-version
         run: |
