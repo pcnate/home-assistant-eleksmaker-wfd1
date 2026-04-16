@@ -13,6 +13,7 @@
     "update:ha": "ts-node bin/update-ha.ts",
     "set:upper": "ts-node bin/set-upper-text.ts",
     "set:lower": "ts-node bin/set-lower-text.ts",
+    "create:helpers": "ts-node bin/create-ha-helpers.ts",
     "create-installer": "iscc build/setup.iss",
     "sign": "ts-node bin/sign.ts"
   },

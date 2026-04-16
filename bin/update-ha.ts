@@ -83,26 +83,46 @@ function encodeLogoFrame( value: number, timing: number ): string {
 
 
 /**
- * POST a value to a Home Assistant entity via the REST API.
+ * Set a value on an HA entity. Uses the appropriate service call for
+ * persistent helpers (input_text/set_value, input_boolean/turn_on|turn_off).
+ * Falls back to the REST states API if the service call fails.
  *
  * @param entityId - the entity ID (e.g. input_text.eleksmaker_gif)
  * @param value - the state value to set
- * @param attrs - optional attributes
+ * @param attrs - optional attributes (only used for REST fallback)
  */
 async function postToHA( entityId: string, value: string, attrs: Record<string, any> = {} ): Promise<void> {
-  const url = `${ HA_URL }/api/states/${ entityId }`;
-  const body = JSON.stringify({
-    state: value,
-    attributes: { friendly_name: entityId, ...attrs },
-  });
+  const headers = {
+    'Authorization': `Bearer ${ HA_TOKEN }`,
+    'Content-Type': 'application/json',
+  };
 
-  const res = await fetch( url, {
+  const [ domain ] = entityId.split( '.' );
+
+  // try service call first (works with persistent helpers)
+  let serviceUrl = '';
+  let serviceBody = '';
+
+  if ( domain === 'input_text' ) {
+    serviceUrl = `${ HA_URL }/api/services/input_text/set_value`;
+    serviceBody = JSON.stringify( { entity_id: entityId, value } );
+  } else if ( domain === 'input_boolean' ) {
+    const action = value === 'on' ? 'turn_on' : 'turn_off';
+    serviceUrl = `${ HA_URL }/api/services/input_boolean/${ action }`;
+    serviceBody = JSON.stringify( { entity_id: entityId } );
+  }
+
+  if ( serviceUrl ) {
+    const res = await fetch( serviceUrl, { method: 'POST', headers, body: serviceBody } );
+    if ( res.ok ) return;
+    // service failed (helper might not exist yet), fall back to states API
+  }
+
+  // fallback: create/update via states API (non-persistent)
+  const res = await fetch( `${ HA_URL }/api/states/${ entityId }`, {
     method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${ HA_TOKEN }`,
-      'Content-Type': 'application/json',
-    },
-    body,
+    headers,
+    body: JSON.stringify( { state: value, attributes: { friendly_name: entityId, ...attrs } } ),
   });
 
   if ( !res.ok ) {
@@ -160,66 +180,63 @@ function crossFrame( theta: number ): number[] {
   return rows;
 }
 
-// 7 unique frames over 90° (cross has 90° symmetry, loops 4x = 28 visual steps)
-const STEPS = 7;
+// 6 unique frames over 90° (15° per step, hits 45° at step 3 so corners light up)
+// circle lights up only on the 45° frame (when X passes through corners)
+const STEPS = 6;
+const SOLID_CIRCLE = 0xFFF;
+const CORNER_STEP = 3; // 45° = corners
 let gifStr = '';
 for ( let i = 0; i < STEPS; i++ ) {
   const theta = ( i * Math.PI / 2 ) / STEPS;
-  const circle = CW[ i % 3 ];
+  const circle = i === CORNER_STEP ? SOLID_CIRCLE : 0;
   gifStr += encodeGifFrame( crossFrame( theta ), circle, TIMING.MEDIUM );
 }
 
-// logo: 4 equal states across 51 frames (255 / 5), all at 500ms = 25.5s cycle
+// logo: 4 states across 51 frames (255 / 5), all at 500ms = 25.5s cycle
 // bits 0-12 = LOWER row, bits 13-25 = UPPER row (left to right)
-const LETTERS: Record<string, number[]> = {
-  E1: [ 0, 1, 13 ],
-  L:  [ 2, 14 ],
-  E2: [ 3, 4, 15 ],
-  K1: [ 5, 16 ],
-  S:  [ 6, 17 ],
-  M:  [ 7, 8, 18, 19 ],
-  A:  [ 9, 20 ],
-  K2: [ 10, 21 ],
-  E3: [ 11, 22, 23 ],
-  R:  [ 12, 24, 25 ],
-};
-
-const letterOrder = [ 'E1', 'L', 'E2', 'K1', 'S', 'M', 'A', 'K2', 'E3', 'R' ];
+// slide in/out advances LOWER[i] and UPPER[i] in lockstep, one index per frame
 const ALL_ON = 0x03FFFFFF;
-const FRAMES_PER_STATE = 12; // 12 × 4 = 48, + 3 extra = 51 total
+const SLIDE_FRAMES = 13;  // one frame per LED column
+const HOLD_ON_FRAMES = 19;
+const HOLD_OFF_FRAMES = 6;
+// 13 + 19 + 13 + 6 = 51
 
 let logoStr = '';
 
-// state 1: slide in L→R (10 letter frames + 2 hold)
+// state 1: slide in L→R — frame N lights LOWER[N] + UPPER[N]
 let accumulated = 0;
-for ( const key of letterOrder ) {
-  for ( const bit of LETTERS[ key ] ) accumulated |= ( 1 << bit );
-  logoStr += encodeLogoFrame( accumulated, TIMING.SLOWER );
-}
-for ( let i = 0; i < FRAMES_PER_STATE - letterOrder.length; i++ ) {
-  logoStr += encodeLogoFrame( ALL_ON, TIMING.SLOWER );
+for ( let n = 0; n < SLIDE_FRAMES; n++ ) {
+  accumulated |= ( 1 << n ) | ( 1 << ( n + 13 ) );
+  logoStr += encodeLogoFrame( accumulated, TIMING.SLOW ); // 200ms (halved from 500ms)
 }
 
-// state 2: hold on (13 frames to fill to 51)
-const holdOnFrames = 51 - ( FRAMES_PER_STATE * 3 + letterOrder.length );
-// actually let me compute: 51 total, state1=12, state3=12, state4=12 = 36, so state2 = 15
-// recalculate: states 1,3,4 = 12 each = 36, state 2 = 51-36 = 15
-for ( let i = 0; i < 15; i++ ) {
-  logoStr += encodeLogoFrame( ALL_ON, TIMING.SLOWER );
+// state 2: hold on with a sweep-off through all 13 columns
+// centered so the middle column (index 6) is off at the midpoint frame
+// 19 frames = 3 static + 13 sweep + 3 static, midpoint (frame 9) = column 6
+{
+  const preStatic = Math.floor( ( HOLD_ON_FRAMES - SLIDE_FRAMES ) / 2 );
+  const postStatic = HOLD_ON_FRAMES - SLIDE_FRAMES - preStatic;
+  for ( let i = 0; i < preStatic; i++ ) {
+    logoStr += encodeLogoFrame( ALL_ON, TIMING.SLOWER );
+  }
+  for ( let n = 0; n < SLIDE_FRAMES; n++ ) {
+    const frame = ALL_ON & ~( ( 1 << n ) | ( 1 << ( n + 13 ) ) );
+    logoStr += encodeLogoFrame( frame, TIMING.SLOWER );
+  }
+  for ( let i = 0; i < postStatic; i++ ) {
+    logoStr += encodeLogoFrame( ALL_ON, TIMING.SLOWER );
+  }
 }
 
-// state 3: slide out L→R (10 letter frames + 2 hold off)
+// state 3: slide out L→R — frame N turns off LOWER[N] + UPPER[N]
 let remaining = ALL_ON;
-for ( const key of letterOrder ) {
-  for ( const bit of LETTERS[ key ] ) remaining &= ~( 1 << bit );
-  logoStr += encodeLogoFrame( remaining, TIMING.SLOWER );
-}
-for ( let i = 0; i < FRAMES_PER_STATE - letterOrder.length; i++ ) {
-  logoStr += encodeLogoFrame( 0, TIMING.SLOWER );
+for ( let n = 0; n < SLIDE_FRAMES; n++ ) {
+  remaining &= ~( ( 1 << n ) | ( 1 << ( n + 13 ) ) );
+  logoStr += encodeLogoFrame( remaining, TIMING.SLOW ); // 200ms (halved from 500ms)
 }
 
-// state 4: hold off (12 frames)
-for ( let i = 0; i < FRAMES_PER_STATE; i++ ) {
+// state 4: hold off
+for ( let i = 0; i < HOLD_OFF_FRAMES; i++ ) {
   logoStr += encodeLogoFrame( 0, TIMING.SLOWER );
 }
 
@@ -227,44 +244,55 @@ for ( let i = 0; i < FRAMES_PER_STATE; i++ ) {
 // ── main ───────────────────────────────────────────────────────────
 
 async function main() {
-  console.log( `GIF  (${ gifStr.length / 11 } frames): ${ gifStr }` );
-  console.log( `Logo (${ logoStr.length / 5 } frames): ${ logoStr }` );
+  const args = process.argv.slice( 2 );
+  const all = args.includes( '--all' ) || args.includes( '-a' );
+  const flags = {
+    gif:     all || args.includes( '--gif' )     || args.includes( '-g' ),
+    logo:    all || args.includes( '--logo' )    || args.includes( '-l' ),
+    upper:   all || args.includes( '--upper' )   || args.includes( '-u' ),
+    lower:   all || args.includes( '--lower' )   || args.includes( '-L' ),
+    flicker: all || args.includes( '--flicker' ) || args.includes( '-f' ),
+  };
 
-  await postToHA( 'input_text.eleksmaker_gif', gifStr, {
-    icon: 'mdi:animation',
-    min: 0,
-    max: 255,
-  });
-  console.log( 'GIF uploaded to input_text.eleksmaker_gif' );
+  if ( !Object.values( flags ).some( v => v ) ) {
+    console.log( 'Usage: npm run update:ha -- <flags>' );
+    console.log( '  --gif     / -g   update matrix GIF animation' );
+    console.log( '  --logo    / -l   update logo animation' );
+    console.log( '  --upper   / -u   update upper text' );
+    console.log( '  --lower   / -L   update lower text (clock when empty)' );
+    console.log( '  --flicker / -f   update logo flicker toggle' );
+    console.log( '  --all     / -a   update everything' );
+    return;
+  }
 
-  await postToHA( 'input_text.eleksmaker_logo', logoStr, {
-    icon: 'mdi:led-on',
-    min: 0,
-    max: 255,
-  });
-  console.log( 'Logo uploaded to input_text.eleksmaker_logo' );
+  if ( flags.gif ) {
+    console.log( `GIF  (${ gifStr.length / 11 } frames): ${ gifStr }` );
+    await postToHA( 'input_text.eleksmaker_gif', gifStr, { icon: 'mdi:animation', min: 0, max: 255 });
+    console.log( 'GIF uploaded to input_text.eleksmaker_gif' );
+  }
 
-  const upperText = 'ELEKSMAKER WFD1';
-  await postToHA( 'input_text.eleksmaker_upper', upperText, {
-    icon: 'mdi:format-text',
-    min: 0,
-    max: 255,
-  });
-  console.log( `Upper text uploaded: "${ upperText }"` );
+  if ( flags.logo ) {
+    console.log( `Logo (${ logoStr.length / 5 } frames): ${ logoStr }` );
+    await postToHA( 'input_text.eleksmaker_logo', logoStr, { icon: 'mdi:led-on', min: 0, max: 255 });
+    console.log( 'Logo uploaded to input_text.eleksmaker_logo' );
+  }
 
-  const lowerText = ''; // empty = show clock
-  await postToHA( 'input_text.eleksmaker_lower', lowerText, {
-    icon: 'mdi:clock-digital',
-    min: 0,
-    max: 255,
-  });
-  console.log( `Lower text uploaded: "${ lowerText || '(empty - clock mode)' }"` );
+  if ( flags.upper ) {
+    const upperText = 'ELEKSMAKER WFD1';
+    await postToHA( 'input_text.eleksmaker_upper', upperText, { icon: 'mdi:format-text', min: 0, max: 255 });
+    console.log( `Upper text uploaded: "${ upperText }"` );
+  }
 
-  await postToHA( 'input_boolean.eleksmaker_logo_flicker', 'on', {
-    friendly_name: 'EleksMaker Logo Flicker',
-    icon: 'mdi:flash',
-  });
-  console.log( 'Logo flicker: on' );
+  if ( flags.lower ) {
+    const lowerText = ''; // empty = show clock
+    await postToHA( 'input_text.eleksmaker_lower', lowerText, { icon: 'mdi:clock-digital', min: 0, max: 255 });
+    console.log( `Lower text uploaded: "${ lowerText || '(empty - clock mode)' }"` );
+  }
+
+  if ( flags.flicker ) {
+    await postToHA( 'input_boolean.eleksmaker_logo_flicker', 'on', { friendly_name: 'EleksMaker Logo Flicker', icon: 'mdi:flash' });
+    console.log( 'Logo flicker: on' );
+  }
 }
 
 main().catch( ( err ) => {
