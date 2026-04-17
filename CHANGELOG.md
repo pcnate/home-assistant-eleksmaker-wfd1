@@ -1,3 +1,10 @@
+# [1.0.0-rc.18](https://github.com/pcnate/home-assistant-eleksmaker-wfd1/compare/v1.0.0-rc.17...v1.0.0-rc.18) (2026-04-17)
+
+
+### Bug Fixes
+
+* correct focus of flicker & global play count ([67ffa12](https://github.com/pcnate/home-assistant-eleksmaker-wfd1/commit/67ffa125c5c9c2d779dafd1febe46e0f6e56fcac))
+
 # [1.0.0-rc.17](https://github.com/pcnate/home-assistant-eleksmaker-wfd1/compare/v1.0.0-rc.16...v1.0.0-rc.17) (2026-04-17)
 
 

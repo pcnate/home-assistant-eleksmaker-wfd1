@@ -45,7 +45,7 @@ const gt = (s) => new dt(typeof s == "string" ? s : s + "", void 0, V), $t = (s,
  * Copyright 2017 Google LLC
  * SPDX-License-Identifier: BSD-3-Clause
  */
-const { is: bt, defineProperty: yt, getOwnPropertyDescriptor: xt, getOwnPropertyNames: _t, getOwnPropertySymbols: wt, getPrototypeOf: At } = Object, D = globalThis, Q = D.trustedTypes, Et = Q ? Q.emptyScript : "", St = D.reactiveElementPolyfillSupport, T = (s, t) => s, I = { toAttribute(s, t) {
+const { is: bt, defineProperty: yt, getOwnPropertyDescriptor: xt, getOwnPropertyNames: _t, getOwnPropertySymbols: wt, getPrototypeOf: At } = Object, D = globalThis, Q = D.trustedTypes, Et = Q ? Q.emptyScript : "", St = D.reactiveElementPolyfillSupport, F = (s, t) => s, I = { toAttribute(s, t) {
   switch (t) {
     case Boolean:
       s = s ? Et : null;
@@ -103,13 +103,13 @@ let E = class extends HTMLElement {
     return this.elementProperties.get(t) ?? tt;
   }
   static _$Ei() {
-    if (this.hasOwnProperty(T("elementProperties"))) return;
+    if (this.hasOwnProperty(F("elementProperties"))) return;
     const t = At(this);
     t.finalize(), t.l !== void 0 && (this.l = [...t.l]), this.elementProperties = new Map(t.elementProperties);
   }
   static finalize() {
-    if (this.hasOwnProperty(T("finalized"))) return;
-    if (this.finalized = !0, this._$Ei(), this.hasOwnProperty(T("properties"))) {
+    if (this.hasOwnProperty(F("finalized"))) return;
+    if (this.finalized = !0, this._$Ei(), this.hasOwnProperty(F("properties"))) {
       const e = this.properties, i = [..._t(e), ...wt(e)];
       for (const r of i) this.createProperty(r, e[r]);
     }
@@ -256,7 +256,7 @@ let E = class extends HTMLElement {
   firstUpdated(t) {
   }
 };
-E.elementStyles = [], E.shadowRootOptions = { mode: "open" }, E[T("elementProperties")] = /* @__PURE__ */ new Map(), E[T("finalized")] = /* @__PURE__ */ new Map(), St?.({ ReactiveElement: E }), (D.reactiveElementVersions ??= []).push("2.1.2");
+E.elementStyles = [], E.shadowRootOptions = { mode: "open" }, E[F("elementProperties")] = /* @__PURE__ */ new Map(), E[F("finalized")] = /* @__PURE__ */ new Map(), St?.({ ReactiveElement: E }), (D.reactiveElementVersions ??= []).push("2.1.2");
 /**
  * @license
  * Copyright 2017 Google LLC
@@ -269,7 +269,7 @@ function mt(s, t) {
   if (!Y(s) || !s.hasOwnProperty("raw")) throw Error("invalid template strings array");
   return st !== void 0 ? st.createHTML(t) : t;
 }
-const Tt = (s, t) => {
+const Ft = (s, t) => {
   const e = s.length - 1, i = [];
   let r, o = t === 2 ? "<svg>" : t === 3 ? "<math>" : "", n = P;
   for (let a = 0; a < e; a++) {
@@ -286,7 +286,7 @@ class R {
     let r;
     this.parts = [];
     let o = 0, n = 0;
-    const a = t.length - 1, l = this.parts, [c, d] = Tt(t, e);
+    const a = t.length - 1, l = this.parts, [c, d] = Ft(t, e);
     if (this.el = R.createElement(c, i), x.currentNode = this.el.content, e === 2 || e === 3) {
       const h = this.el.content.firstChild;
       h.replaceWith(...h.childNodes);
@@ -324,7 +324,7 @@ function C(s, t, e = s, i) {
   const o = U(t) ? void 0 : t._$litDirective$;
   return r?.constructor !== o && (r?._$AO?.(!1), o === void 0 ? r = void 0 : (r = new o(s), r._$AT(s, e, i)), i !== void 0 ? (e._$Co ??= [])[i] = r : e._$Cl = r), r !== void 0 && (t = C(s, r._$AS(s, t.values), r, i)), t;
 }
-class Ft {
+class Tt {
   constructor(t, e) {
     this._$AV = [], this._$AN = void 0, this._$AD = t, this._$AM = e;
   }
@@ -386,7 +386,7 @@ class N {
     const { values: e, _$litType$: i } = t, r = typeof i == "number" ? this._$AC(t) : (i.el === void 0 && (i.el = R.createElement(mt(i.h, i.h[0]), this.options)), i);
     if (this._$AH?._$AD === r) this._$AH.p(e);
     else {
-      const o = new Ft(r, this), n = o.u(this.options);
+      const o = new Tt(r, this), n = o.u(this.options);
       o.p(e), this.T(n), this._$AH = o;
     }
   }
@@ -493,7 +493,7 @@ const Ht = (s, t, e) => {
  * SPDX-License-Identifier: BSD-3-Clause
  */
 const K = globalThis;
-class F extends E {
+class T extends E {
   constructor() {
     super(...arguments), this.renderOptions = { host: this }, this._$Do = void 0;
   }
@@ -515,9 +515,9 @@ class F extends E {
     return S;
   }
 }
-F._$litElement$ = !0, F.finalized = !0, K.litElementHydrateSupport?.({ LitElement: F });
+T._$litElement$ = !0, T.finalized = !0, K.litElementHydrateSupport?.({ LitElement: T });
 const It = K.litElementPolyfillSupport;
-It?.({ LitElement: F });
+It?.({ LitElement: T });
 (K.litElementVersions ??= []).push("4.2.2");
 /**
  * @license
@@ -588,7 +588,7 @@ const B = ["50ms", "100ms", "200ms", "500ms"], lt = [50, 100, 200, 500], jt = [
   "led-left-10",
   "led-left-11"
 ], k = 255, g = 11, Vt = 10, Wt = "input_text.eleksmaker_gif_preset_", ht = "input_number.eleksmaker_logo_flicker", ct = "input_number.eleksmaker_gif_play_count", A = 2;
-let u = class extends F {
+let u = class extends T {
   constructor() {
     super(...arguments), this.frames = [this.newFrame()], this.currentFrame = 0, this.lastLoadedValue = "", this.selectedSlot = 1, this.playCount = 0, this.previewIdx = 0, this.previewTimer = null, this.globalDraft = "", this.flickerDraft = "", this.stepPreview = () => {
       if (this.frames.length === 0) {
@@ -630,14 +630,14 @@ let u = class extends F {
   willUpdate(s) {
     if (!s.has("hass") || !this.hass) return;
     const t = this.shadowRoot, e = t?.activeElement ?? null, i = t?.querySelector(".flicker-input") ?? null;
-    if (e !== i) {
-      const o = String(this.flickerRate());
-      this.flickerDraft !== o && (this.flickerDraft = o);
+    if (!(i !== null && e === i)) {
+      const a = String(this.flickerRate());
+      this.flickerDraft !== a && (this.flickerDraft = a);
     }
-    const r = t?.querySelector(".global-play-count-input") ?? null;
-    if (e !== r) {
-      const o = String(this.globalPlayCount());
-      this.globalDraft !== o && (this.globalDraft = o);
+    const o = t?.querySelector(".global-play-count-input") ?? null;
+    if (!(o !== null && e === o)) {
+      const a = String(this.globalPlayCount());
+      this.globalDraft !== a && (this.globalDraft = a);
     }
   }
   updated(s) {
