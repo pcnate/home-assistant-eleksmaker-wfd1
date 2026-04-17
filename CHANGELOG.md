@@ -1,3 +1,10 @@
+# [1.0.0-rc.17](https://github.com/pcnate/home-assistant-eleksmaker-wfd1/compare/v1.0.0-rc.16...v1.0.0-rc.17) (2026-04-17)
+
+
+### Bug Fixes
+
+* fix global animation count saving ([69491a3](https://github.com/pcnate/home-assistant-eleksmaker-wfd1/commit/69491a39df6e6c311b565c7dfc8aa35dc277a631))
+
 # [1.0.0-rc.16](https://github.com/pcnate/home-assistant-eleksmaker-wfd1/compare/v1.0.0-rc.15...v1.0.0-rc.16) (2026-04-16)
 
 
