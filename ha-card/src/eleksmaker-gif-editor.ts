@@ -135,6 +135,7 @@ export class EleksmakerGifEditor extends LitElement {
       width: 216px;    /* 168 matrix + 2*(12 border + 12 gap) */
       height: 216px;
       background: #1a1a1a;
+      border-radius: 12px;   /* matches the corner LEDs' outer curve */
       flex: 0 0 auto;
     }
     .preview-label {
@@ -160,7 +161,7 @@ export class EleksmakerGifEditor extends LitElement {
     .cell {
       width: 24px;
       height: 24px;
-      background: #1a1a1a;
+      background: transparent;
       cursor: pointer;
       box-sizing: border-box;
       transition: background 0.1s;
@@ -176,7 +177,7 @@ export class EleksmakerGifEditor extends LitElement {
     /* LED strip segments — positioned absolutely; 12 px thick (half cell). */
     .led {
       position: absolute;
-      background: #1a1a1a;
+      background: transparent;
       cursor: pointer;
       transition: background 0.1s;
     }
