@@ -73,7 +73,7 @@ namespace esphome {
       void set_show_mic(binary_sensor::BinarySensor *sens) { show_mic_ = sens; }
       void set_show_logo(binary_sensor::BinarySensor *sens) { show_logo_ = sens; }
       void set_logo_flicker(sensor::Sensor *sens) { logo_flicker_ = sens; }
-      void set_gif_play_count(sensor::Sensor *sens) { gif_play_count_global_ = sens; }
+      void set_gif_play_count(sensor::Sensor *sens);
 
       void set_logo_animation(text_sensor::TextSensor *sens);
       void set_gif_animation(text_sensor::TextSensor *sens);
@@ -165,7 +165,16 @@ namespace esphome {
       uint16_t gif_play_count_{0};    // 12-bit count from first 2 chars; 0 = loop forever
       int gif_plays_remaining_{0};    // decrements each cycle; clears at 0 (only if gif_play_count_ > 0)
       int gif_global_remaining_{-1};  // local mirror of the global counter sensor; -1 = uninitialized, 0 = disabled
+      int last_sent_global_{-1};      // last value we pushed to HA for the global counter (to filter echoes in the sensor callback)
       bool gif_done_{false};          // true = animation has completed its play count
+
+      // leading-edge LED of each progress/bar group, so applyFlicker can
+      // leave it alone. -1 = no LEDs lit.
+      int cpu_bar_top_{-1};
+      int gpu_bar_top_{-1};
+      int ram_bar_top_{-1};
+      int vbar_1_top_{-1};
+      int vbar_2_top_{-1};
 
       char upper_text[64];
       int upper_text_length_{0};

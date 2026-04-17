@@ -632,6 +632,16 @@ void EleksWFD::applyFlicker() {
   uint32_t rand = esp_random();
   if ( static_cast<int>( rand & 0xFF ) < threshold ) {
     int led = flicker_leds_[ ( rand >> 8 ) % flicker_leds_.size() ];
+
+    // skip the leading-edge LED of each bar group so the "current value"
+    // indicator doesn't blink and confuse the reading
+    using namespace esphome::elekswfd::display;
+    if ( cpu_bar_top_ >= 0 && led == horizontal_bars::CPU_BAR[ cpu_bar_top_ ] ) return;
+    if ( gpu_bar_top_ >= 0 && led == horizontal_bars::GPU_BAR[ gpu_bar_top_ ] ) return;
+    if ( ram_bar_top_ >= 0 && led == horizontal_bars::RAM_BAR[ ram_bar_top_ ] ) return;
+    if ( vbar_1_top_  >= 0 && led == vertical_bars::BAR_1[ vbar_1_top_ ] ) return;
+    if ( vbar_2_top_  >= 0 && led == vertical_bars::BAR_2[ vbar_2_top_ ] ) return;
+
     if ( display_elements[ led ] ) {
       display_elements[ led ] = false;
       active_flickers_.push_back( { led, now } );
@@ -1064,6 +1074,7 @@ void EleksWFD::setCpuUsage( uint8_t value ) {
   for ( int i = 0; i < 20; i++ ) {
     display_elements[ esphome::elekswfd::display::horizontal_bars::CPU_BAR[i] ] = i < val;
   }
+  cpu_bar_top_ = val > 0 ? val - 1 : -1;
 }
 
 void EleksWFD::setGpuUsage( uint8_t value ) {
@@ -1076,6 +1087,7 @@ void EleksWFD::setGpuUsage( uint8_t value ) {
   for ( int i = 0; i < 20; i++ ) {
     display_elements[ esphome::elekswfd::display::horizontal_bars::GPU_BAR[i] ] = i < val;
   }
+  gpu_bar_top_ = val > 0 ? val - 1 : -1;
 }
 
 void EleksWFD::setRamUsage( uint8_t value ) {
@@ -1088,6 +1100,7 @@ void EleksWFD::setRamUsage( uint8_t value ) {
   for ( int i = 0; i < 20; i++ ) {
     display_elements[ esphome::elekswfd::display::horizontal_bars::RAM_BAR[i] ] = i < val;
   }
+  ram_bar_top_ = val > 0 ? val - 1 : -1;
 }
 
 void EleksWFD::setBarChart( bool bar, uint8_t _value ) {
@@ -1109,6 +1122,8 @@ void EleksWFD::setBarChart( bool bar, uint8_t _value ) {
       display_elements[ esphome::elekswfd::display::vertical_bars::BAR_2[i] ] = i < value;
     }
   }
+  if ( !bar ) vbar_1_top_ = value > 0 ? value - 1 : -1;
+  else        vbar_2_top_ = value > 0 ? value - 1 : -1;
 }
 
 
