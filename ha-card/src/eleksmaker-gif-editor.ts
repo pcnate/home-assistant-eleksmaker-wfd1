@@ -270,13 +270,15 @@ export class EleksmakerGifEditor extends LitElement {
     const active = root?.activeElement ?? null;
 
     const flickerEl = root?.querySelector( '.flicker-input' ) ?? null;
-    if ( active !== flickerEl ) {
+    const flickerFocused = flickerEl !== null && active === flickerEl;
+    if ( !flickerFocused ) {
       const v = String( this.flickerRate() );
       if ( this.flickerDraft !== v ) this.flickerDraft = v;
     }
 
     const globalEl = root?.querySelector( '.global-play-count-input' ) ?? null;
-    if ( active !== globalEl ) {
+    const globalFocused = globalEl !== null && active === globalEl;
+    if ( !globalFocused ) {
       const v = String( this.globalPlayCount() );
       if ( this.globalDraft !== v ) this.globalDraft = v;
     }
