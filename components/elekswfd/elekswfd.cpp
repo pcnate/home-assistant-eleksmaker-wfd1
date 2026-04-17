@@ -383,13 +383,20 @@ void EleksWFD::animate() {
         // source of truth. HA is updated best-effort for visibility.
         if ( gif_global_remaining_ < 0 ) {
           int snapshot = 0;
+          bool sensor_ready = false;
           if ( gif_play_count_global_ != nullptr && gif_play_count_global_->has_state() ) {
             snapshot = static_cast<int>( gif_play_count_global_->state );
+            sensor_ready = true;
           }
           gif_global_remaining_ = snapshot > 0 ? snapshot : 0;
+          ESP_LOGI( TAG, "Global play count snapshot: %d (sensor_ready=%d, raw=%.1f)",
+                    gif_global_remaining_,
+                    sensor_ready ? 1 : 0,
+                    gif_play_count_global_ ? gif_play_count_global_->state : -1.0f );
         }
         if ( gif_global_remaining_ > 0 ) {
           gif_global_remaining_--;
+          last_sent_global_ = gif_global_remaining_;
 #if defined( USE_API ) && defined( USE_API_HOMEASSISTANT_SERVICES )
           if ( api::global_api_server != nullptr ) {
             static char global_value_buf[ 8 ];
@@ -1104,6 +1111,33 @@ void EleksWFD::setBarChart( bool bar, uint8_t _value ) {
   }
 }
 
+
+/**
+ * Wire up the global GIF play count sensor AND install a live callback so
+ * changes from HA apply immediately instead of waiting for the next
+ * animation load. We filter out the sensor echo caused by our own decrement
+ * writes via `last_sent_global_`.
+ */
+void EleksWFD::set_gif_play_count( sensor::Sensor *sens ) {
+  gif_play_count_global_ = sens;
+  if ( sens == nullptr ) return;
+
+  sens->add_on_state_callback( [ this ]( float value ) {
+    int n = static_cast<int>( value );
+
+    // filter echoes of values we just pushed to HA from the decrement path
+    if ( n == last_sent_global_ ) return;
+
+    // Only applies to a live animation. If the animation already finished
+    // (gif_done_) or no frames are loaded, the user/automation is expected
+    // to push a GIF string to kick off the next run — at which point
+    // parseGifData resets gif_global_remaining_ and the count is re-read
+    // from the sensor on the first at_last_frame.
+    gif_global_remaining_ = n;
+    ESP_LOGI( TAG, "Global play count externally set to %d", n );
+  });
+}
+
 void EleksWFD::setWeather( int mode ) {
   bool sunny = mode == 1;
   bool cloud = mode == 2;
@@ -1364,6 +1398,7 @@ void EleksWFD::parseGifData( const std::string &data ) {
   gif_play_count_ = 0;
   gif_plays_remaining_ = 0;
   gif_global_remaining_ = -1;   // re-snapshot the sensor on next cycle end
+  last_sent_global_ = -1;       // reset echo filter for this animation
   gif_done_ = false;
 
   // new format: 2 prefix chars (12-bit play count) + N * 11 chars of frames
