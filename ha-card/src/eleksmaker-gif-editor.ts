@@ -138,11 +138,15 @@ export class EleksmakerGifEditor extends LitElement {
       border-radius: 12px;   /* matches the corner LEDs' outer curve */
       flex: 0 0 auto;
     }
-    .preview-label {
+    .preview-label,
+    .editor-label {
       font-size: 12px;
       color: var( --secondary-text-color );
       margin-top: 6px;
       text-align: center;
+    }
+    .editor-label.warn {
+      color: var( --error-color );
     }
     /* preview uses the same sub-element classes as the editor; disable interaction */
     .preview-area .led,
@@ -680,29 +684,34 @@ export class EleksmakerGifEditor extends LitElement {
           </div>
 
           <div class="stage">
-            <div class="display-area">
-              ${ led( 0,  'led-top-0' ) }
-              ${ led( 1,  'led-top-1' ) }
-              ${ led( 2,  'led-top-2' ) }
-              ${ led( 3,  'led-right-3' ) }
-              ${ led( 4,  'led-right-4' ) }
-              ${ led( 5,  'led-right-5' ) }
-              ${ led( 6,  'led-bottom-6' ) }
-              ${ led( 7,  'led-bottom-7' ) }
-              ${ led( 8,  'led-bottom-8' ) }
-              ${ led( 9,  'led-left-9' ) }
-              ${ led( 10, 'led-left-10' ) }
-              ${ led( 11, 'led-left-11' ) }
+            <div>
+              <div class="display-area">
+                ${ led( 0,  'led-top-0' ) }
+                ${ led( 1,  'led-top-1' ) }
+                ${ led( 2,  'led-top-2' ) }
+                ${ led( 3,  'led-right-3' ) }
+                ${ led( 4,  'led-right-4' ) }
+                ${ led( 5,  'led-right-5' ) }
+                ${ led( 6,  'led-bottom-6' ) }
+                ${ led( 7,  'led-bottom-7' ) }
+                ${ led( 8,  'led-bottom-8' ) }
+                ${ led( 9,  'led-left-9' ) }
+                ${ led( 10, 'led-left-10' ) }
+                ${ led( 11, 'led-left-11' ) }
 
-              <div class="matrix">
-                ${ f.matrix.flat().map( ( on, idx ) => {
-                  const r = Math.floor( idx / 7 );
-                  const c = idx % 7;
-                  return html`
-                    <div class="cell ${ on ? 'on' : '' }"
-                         @click=${ () => this.toggleCell( r, c ) }></div>
-                  `;
-                } ) }
+                <div class="matrix">
+                  ${ f.matrix.flat().map( ( on, idx ) => {
+                    const r = Math.floor( idx / 7 );
+                    const c = idx % 7;
+                    return html`
+                      <div class="cell ${ on ? 'on' : '' }"
+                           @click=${ () => this.toggleCell( r, c ) }></div>
+                    `;
+                  } ) }
+                </div>
+              </div>
+              <div class="editor-label ${ charCount > MAX_CHARS ? 'warn' : '' }">
+                ${ charCount }/${ MAX_CHARS } chars
               </div>
             </div>
 
@@ -798,9 +807,6 @@ export class EleksmakerGifEditor extends LitElement {
             <span style="font-size: 13px; color: var( --secondary-text-color );">cycles (0 = disabled, decrements each loop)</span>
           </div>
 
-          <div class="meta ${ charCount > MAX_CHARS ? 'warn' : '' }">
-            ${ charCount }/${ MAX_CHARS } chars · ${ this.frames.length } frames · entity: ${ this.config.entity }
-          </div>
         </div>
       </ha-card>
     `;
