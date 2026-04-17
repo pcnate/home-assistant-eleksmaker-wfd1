@@ -44,6 +44,11 @@ export class EleksmakerGifEditor extends LitElement {
   private previewIdx = 0;
   private previewTimer: any = null;
 
+  // Input drafts — decouple the number inputs from `hass` so a stray HA state
+  // change mid-typing doesn't clobber the user's entry via Lit's `.value` bind.
+  @state() private globalDraft: string = '';
+  @state() private flickerDraft: string = '';
+
 
   /**
    * Create an empty frame with all LEDs off and timing set to 200ms.
@@ -250,6 +255,32 @@ export class EleksmakerGifEditor extends LitElement {
       color: var( --error-color );
     }
   `;
+
+
+  /**
+   * Runs before each render. Sync the HA-backed input drafts from `hass` only
+   * when the corresponding input is not currently focused — this keeps
+   * external state changes reflected in the UI while preventing a stray HA
+   * update from wiping out what the user is in the middle of typing.
+   */
+  willUpdate( changed: PropertyValues ): void {
+    if ( !changed.has( 'hass' ) || !this.hass ) return;
+
+    const root = this.shadowRoot;
+    const active = root?.activeElement ?? null;
+
+    const flickerEl = root?.querySelector( '.flicker-input' ) ?? null;
+    if ( active !== flickerEl ) {
+      const v = String( this.flickerRate() );
+      if ( this.flickerDraft !== v ) this.flickerDraft = v;
+    }
+
+    const globalEl = root?.querySelector( '.global-play-count-input' ) ?? null;
+    if ( active !== globalEl ) {
+      const v = String( this.globalPlayCount() );
+      if ( this.globalDraft !== v ) this.globalDraft = v;
+    }
+  }
 
 
   updated( changed: PropertyValues ): void {
@@ -492,20 +523,6 @@ export class EleksmakerGifEditor extends LitElement {
   }
 
 
-  /**
-   * Update the per-animation play count and push the whole animation string
-   * (with the new prefix baked in) back to HA. Skips the save if the value
-   * hasn't actually changed.
-   */
-  private setPlayCount( value: number ): void {
-    if ( !isFinite( value ) ) return;
-    const n = Math.max( 0, Math.min( 4095, Math.round( value ) ) );
-    if ( n === this.playCount ) return;
-    this.playCount = n;
-    void this.saveToHA();
-  }
-
-
   private loadFromHA(): void {
     const state = this.hass?.states?.[ this.config.entity ];
     if ( !state ) return;
@@ -724,7 +741,7 @@ export class EleksmakerGifEditor extends LitElement {
                 max="4095"
                 step="1"
                 .value=${ String( this.playCount ) }
-                @change=${ ( e: Event ) => this.setPlayCount( Number( ( e.target as HTMLInputElement ).value ) ) }
+                @input=${ ( e: Event ) => { this.playCount = Math.max( 0, Number( ( e.target as HTMLInputElement ).value ) || 0 ); } }
                 style="width: 70px; padding: 4px; background: var( --card-background-color ); color: var( --primary-text-color ); border: 1px solid var( --divider-color ); border-radius: 4px;"
               >
               <span style="font-size: 13px; color: var( --secondary-text-color );">(0 = loop)</span>
@@ -749,11 +766,13 @@ export class EleksmakerGifEditor extends LitElement {
           <div class="presets">
             <div class="presets-label">Flicker</div>
             <input
+              class="flicker-input"
               type="number"
               min="0"
               max="100"
               step="1"
-              .value=${ String( this.flickerRate() ) }
+              .value=${ this.flickerDraft }
+              @input=${ ( e: Event ) => { this.flickerDraft = ( e.target as HTMLInputElement ).value; } }
               @change=${ ( e: Event ) => this.setFlickerRate( Number( ( e.target as HTMLInputElement ).value ) ) }
               style="width: 70px; padding: 6px; background: var( --card-background-color ); color: var( --primary-text-color ); border: 1px solid var( --divider-color ); border-radius: 4px;"
             >
@@ -763,11 +782,13 @@ export class EleksmakerGifEditor extends LitElement {
           <div class="presets">
             <div class="presets-label">Global play count</div>
             <input
+              class="global-play-count-input"
               type="number"
               min="0"
               max="100"
               step="1"
-              .value=${ String( this.globalPlayCount() ) }
+              .value=${ this.globalDraft }
+              @input=${ ( e: Event ) => { this.globalDraft = ( e.target as HTMLInputElement ).value; } }
               @change=${ ( e: Event ) => this.setGlobalPlayCount( Number( ( e.target as HTMLInputElement ).value ) ) }
               style="width: 70px; padding: 6px; background: var( --card-background-color ); color: var( --primary-text-color ); border: 1px solid var( --divider-color ); border-radius: 4px;"
             >
