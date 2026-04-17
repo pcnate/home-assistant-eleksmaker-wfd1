@@ -1,3 +1,10 @@
+# [1.0.0-rc.19](https://github.com/pcnate/home-assistant-eleksmaker-wfd1/compare/v1.0.0-rc.18...v1.0.0-rc.19) (2026-04-17)
+
+
+### Bug Fixes
+
+* update border LED corners ([5d297cd](https://github.com/pcnate/home-assistant-eleksmaker-wfd1/commit/5d297cd51565cfa648ec3147356bbc974da0f254))
+
 # [1.0.0-rc.18](https://github.com/pcnate/home-assistant-eleksmaker-wfd1/compare/v1.0.0-rc.17...v1.0.0-rc.18) (2026-04-17)
 
 
