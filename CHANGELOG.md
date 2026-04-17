@@ -1,3 +1,11 @@
+# [1.0.0-rc.20](https://github.com/pcnate/home-assistant-eleksmaker-wfd1/compare/v1.0.0-rc.19...v1.0.0-rc.20) (2026-04-17)
+
+
+### Bug Fixes
+
+* don't flicker highest value LED in bar graphs ([47a568e](https://github.com/pcnate/home-assistant-eleksmaker-wfd1/commit/47a568e89d88bbd9ecd077eb4aaab24592244045))
+* Handle global GIF play count sensor & callbak ([3d8eec1](https://github.com/pcnate/home-assistant-eleksmaker-wfd1/commit/3d8eec1ff5272872279ce81589fc86379d6af51b))
+
 # [1.0.0-rc.19](https://github.com/pcnate/home-assistant-eleksmaker-wfd1/compare/v1.0.0-rc.18...v1.0.0-rc.19) (2026-04-17)
 
 

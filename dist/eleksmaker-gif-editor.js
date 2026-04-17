@@ -890,28 +890,33 @@ let u = class extends T {
           </div>
 
           <div class="stage">
-            <div class="display-area">
-              ${r(0, "led-top-0")}
-              ${r(1, "led-top-1")}
-              ${r(2, "led-top-2")}
-              ${r(3, "led-right-3")}
-              ${r(4, "led-right-4")}
-              ${r(5, "led-right-5")}
-              ${r(6, "led-bottom-6")}
-              ${r(7, "led-bottom-7")}
-              ${r(8, "led-bottom-8")}
-              ${r(9, "led-left-9")}
-              ${r(10, "led-left-10")}
-              ${r(11, "led-left-11")}
+            <div>
+              <div class="display-area">
+                ${r(0, "led-top-0")}
+                ${r(1, "led-top-1")}
+                ${r(2, "led-top-2")}
+                ${r(3, "led-right-3")}
+                ${r(4, "led-right-4")}
+                ${r(5, "led-right-5")}
+                ${r(6, "led-bottom-6")}
+                ${r(7, "led-bottom-7")}
+                ${r(8, "led-bottom-8")}
+                ${r(9, "led-left-9")}
+                ${r(10, "led-left-10")}
+                ${r(11, "led-left-11")}
 
-              <div class="matrix">
-                ${s.matrix.flat().map((a, l) => {
+                <div class="matrix">
+                  ${s.matrix.flat().map((a, l) => {
       const c = Math.floor(l / 7), d = l % 7;
       return v`
-                    <div class="cell ${a ? "on" : ""}"
-                         @click=${() => this.toggleCell(c, d)}></div>
-                  `;
+                      <div class="cell ${a ? "on" : ""}"
+                           @click=${() => this.toggleCell(c, d)}></div>
+                    `;
     })}
+                </div>
+              </div>
+              <div class="editor-label ${e > k ? "warn" : ""}">
+                ${e}/${k} chars
               </div>
             </div>
 
@@ -1015,9 +1020,6 @@ let u = class extends T {
             <span style="font-size: 13px; color: var( --secondary-text-color );">cycles (0 = disabled, decrements each loop)</span>
           </div>
 
-          <div class="meta ${e > k ? "warn" : ""}">
-            ${e}/${k} chars · ${this.frames.length} frames · entity: ${this.config.entity}
-          </div>
         </div>
       </ha-card>
     `;
@@ -1086,11 +1088,15 @@ u.styles = $t`
       border-radius: 12px;   /* matches the corner LEDs' outer curve */
       flex: 0 0 auto;
     }
-    .preview-label {
+    .preview-label,
+    .editor-label {
       font-size: 12px;
       color: var( --secondary-text-color );
       margin-top: 6px;
       text-align: center;
+    }
+    .editor-label.warn {
+      color: var( --error-color );
     }
     /* preview uses the same sub-element classes as the editor; disable interaction */
     .preview-area .led,
