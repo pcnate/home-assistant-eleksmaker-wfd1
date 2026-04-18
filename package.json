@@ -16,6 +16,7 @@
     "create:helpers": "ts-node bin/create-ha-helpers.ts",
     "show:gif": "ts-node bin/show-gif.ts",
     "convert:presets": "ts-node bin/convert-presets.ts",
+    "update:version-h": "ts-node bin/update-version-h.ts",
     "render:gif": "ts-node bin/render-gif.ts",
     "create-installer": "iscc build/setup.iss",
     "sign": "ts-node bin/sign.ts"
@@ -26,6 +27,7 @@
     "typescript": "^5.8.2",
     "semantic-release": "^24.0.0",
     "@semantic-release/changelog": "^6.0.3",
+    "@semantic-release/exec": "^6.0.3",
     "@semantic-release/git": "^10.0.1"
   }
 }

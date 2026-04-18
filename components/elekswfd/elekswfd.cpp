@@ -1,4 +1,5 @@
 #include "elekswfd.h"
+#include "version.h"
 #include "esphome/core/log.h"
 #include "displays.cpp"
 #include "7_seg.cpp"
@@ -28,6 +29,13 @@ namespace esphome {
 namespace elekswfd {
 
 static const char *TAG = "EleksWFD";
+
+// Hardcoded boot animation — plays from setup() until HA sends its first
+// state for input_text.eleksmaker_gif (even if blank). Captured from HA via
+// `npm run show:gif`; replace with any encoded animation string to change it.
+// The leading "00" prefix = play count 0 = loop forever, which is what we
+// want while waiting for HA.
+static const char *BOOT_GIF = "008@Ph?248000@P\\P3J24000PRH11=R200015A115A1oo115A105A1oo1151000A1oo111000001oo100000000no711000001oo1151000A1oo115A105A1oo115A115A1oo128B3QU8P0004@PdG24@000";
 
 void EleksWFD::setup() {
   ESP_LOGD(TAG, "Setup complete!");
@@ -67,6 +75,46 @@ void EleksWFD::setup() {
   this->initializeMicrophone();
   this->readTimeFromRTC();
   this->buildFlickerList();
+
+  // play a hardcoded boot animation until HA sends a value (even if blank)
+  ESP_LOGI( TAG, "Loading boot GIF (%d chars)", (int) strlen( BOOT_GIF ) );
+  parseGifData( BOOT_GIF );
+
+  // Boot text format: "   v1-0-0-rc-20"
+  //   - 3 leading spaces so the version scrolls in from the right side of
+  //     the 6-digit display; otherwise the first char ('v') is already at
+  //     the leftmost digit and the '1' moves offscreen almost immediately.
+  //   - 'v' prefix for clarity.
+  //   - Periods swapped for hyphens since the dot segment doesn't render
+  //     between 14-seg digits.
+  const char *ver = ELEKSWFD_VERSION;
+  size_t vlen = strlen( ver );
+  const int PAD = 3;
+  int pos = 0;
+  for ( int i = 0; i < PAD && pos < 63; i++ ) upper_text[ pos++ ] = ' ';
+  if ( pos < 63 ) upper_text[ pos++ ] = 'v';
+  for ( size_t i = 0; i < vlen && pos < 63; i++ ) {
+    char c = ver[ i ];
+    upper_text[ pos++ ] = ( c == '.' ) ? '-' : c;
+  }
+  upper_text[ pos ] = '\0';
+  upper_text_length_ = pos;
+  upper_text_scroll_offset_ = 0;
+  upper_text_last_scroll_time_ = esp_timer_get_time();   // don't scroll on the first render
+  ESP_LOGI( TAG, "Boot version: %s", ELEKSWFD_VERSION );
+
+  // hold the version on screen for 5 s so it's visible even when HA pushes
+  // almost immediately on reboot. Any HA upper_text received during this
+  // window is stashed in pending_upper_text_ and applied when the lock
+  // releases.
+  this->set_timeout( "upper_text_boot_window", 5000, [ this ]() {
+    upper_text_boot_lock_ = false;
+    if ( pending_upper_text_set_ ) {
+      applyUpperTextFromHa( pending_upper_text_ );
+      pending_upper_text_set_ = false;
+      pending_upper_text_.clear();
+    }
+  });
 
   // this->updateTime( this->counter, this->counter, this->counter );
 
@@ -1377,8 +1425,9 @@ void EleksWFD::set_gif_animation( text_sensor::TextSensor *sens ) {
 
   if ( sens == nullptr ) return;
 
-  // parse initial state if available
-  if ( sens->has_state() && sens->state.length() > 0 ) {
+  // parse initial state if available — honor blank values too so a cleared
+  // HA entity overrides the boot animation
+  if ( sens->has_state() ) {
     parseGifData( sens->state );
   }
 
@@ -1445,27 +1494,41 @@ void EleksWFD::parseGifData( const std::string &data ) {
   gif_frame_total = gif_frames.size();
   ESP_LOGI( TAG, "Parsed %d GIF frames (play_count=%u)", gif_frame_total, gif_play_count_ );
 }
+void EleksWFD::applyUpperTextFromHa( const std::string &value ) {
+  upper_text_length_ = value.length() > 63 ? 63 : static_cast<int>( value.length() );
+  memcpy( upper_text, value.c_str(), upper_text_length_ );
+  upper_text[ upper_text_length_ ] = '\0';
+  upper_text_scroll_offset_ = 0;
+}
+
+
 void EleksWFD::set_upper_text( text_sensor::TextSensor *sens ) {
   upper_text_ = sens;
 
   if ( sens == nullptr ) return;
 
-  // parse initial state if available
-  if ( sens->has_state() && sens->state.length() > 0 ) {
+  // parse initial state if available — honor blank too so a cleared HA value
+  // overrides the version string shown on boot. If the boot lock is active
+  // the value is stashed and applied once the 5 s boot window expires.
+  if ( sens->has_state() ) {
     const std::string &val = sens->state;
-    upper_text_length_ = val.length() > 63 ? 63 : val.length();
-    memcpy( upper_text, val.c_str(), upper_text_length_ );
-    upper_text[ upper_text_length_ ] = '\0';
-    upper_text_scroll_offset_ = 0;
+    if ( upper_text_boot_lock_ ) {
+      pending_upper_text_ = val;
+      pending_upper_text_set_ = true;
+    } else {
+      applyUpperTextFromHa( val );
+    }
   }
 
   // listen for live updates from HA
-  sens->add_on_state_callback( [this]( const std::string &value ) {
+  sens->add_on_state_callback( [ this ]( const std::string &value ) {
     ESP_LOGI( TAG, "Upper text updated: %s", value.c_str() );
-    upper_text_length_ = value.length() > 63 ? 63 : value.length();
-    memcpy( upper_text, value.c_str(), upper_text_length_ );
-    upper_text[ upper_text_length_ ] = '\0';
-    upper_text_scroll_offset_ = 0;
+    if ( upper_text_boot_lock_ ) {
+      pending_upper_text_ = value;
+      pending_upper_text_set_ = true;
+    } else {
+      applyUpperTextFromHa( value );
+    }
   });
 }
 void EleksWFD::set_lower_text( text_sensor::TextSensor *sens ) {

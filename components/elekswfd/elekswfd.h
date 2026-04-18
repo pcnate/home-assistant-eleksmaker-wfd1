@@ -181,6 +181,12 @@ namespace esphome {
       int upper_text_scroll_offset_{0};
       int64_t upper_text_last_scroll_time_{0};
       bool ota_active_{false};
+      // Boot-window gating so the firmware version stays visible for a few
+      // seconds on power-up before HA's upper_text overrides it. Any HA
+      // state received while locked is queued and applied when unlocked.
+      bool upper_text_boot_lock_{true};
+      bool pending_upper_text_set_{false};
+      std::string pending_upper_text_;
 
       char lower_text[64];
       int lower_text_length_{0};
@@ -268,6 +274,7 @@ namespace esphome {
        * @param data the encoded animation string (6 bits per char, offset 0x30)
        */
       void parseGifData( const std::string &data );
+      void applyUpperTextFromHa( const std::string &value );
 
       /**
        * render the logo
