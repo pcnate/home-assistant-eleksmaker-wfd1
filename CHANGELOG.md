@@ -1,3 +1,10 @@
+# [1.0.0-rc.21](https://github.com/pcnate/home-assistant-eleksmaker-wfd1/compare/v1.0.0-rc.20...v1.0.0-rc.21) (2026-04-18)
+
+
+### Features
+
+* versioning and booting improvements ([018c1fa](https://github.com/pcnate/home-assistant-eleksmaker-wfd1/commit/018c1fa50d62c25fa31419d3ad35a53a4f97a1d2))
+
 # [1.0.0-rc.20](https://github.com/pcnate/home-assistant-eleksmaker-wfd1/compare/v1.0.0-rc.19...v1.0.0-rc.20) (2026-04-17)
 
 
