@@ -3,7 +3,8 @@
     "strict": true,
     "module": "commonjs",
     "target": "es2020",
-    "esModuleInterop": true
+    "esModuleInterop": true,
+    "types": ["node"]
   },
   "include": ["bin/**/*.ts"]
 }
