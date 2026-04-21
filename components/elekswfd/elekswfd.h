@@ -72,11 +72,28 @@ namespace esphome {
       void set_show_time(binary_sensor::BinarySensor *sens) { show_time_ = sens; }
       void set_show_mic(binary_sensor::BinarySensor *sens) { show_mic_ = sens; }
       void set_show_logo(binary_sensor::BinarySensor *sens) { show_logo_ = sens; }
+      void set_logo_flicker(sensor::Sensor *sens) { logo_flicker_ = sens; }
+      void set_gif_play_count(sensor::Sensor *sens);
 
       void set_logo_animation(text_sensor::TextSensor *sens);
       void set_gif_animation(text_sensor::TextSensor *sens);
       void set_upper_text(text_sensor::TextSensor *sens);
       void set_lower_text(text_sensor::TextSensor *sens);
+
+      /**
+       * display OTA progress on the upper digits, or end OTA mode
+       *
+       * @param pct 0-100 for progress, -1 to end OTA mode
+       */
+      void setOtaProgress( int pct );
+
+      /**
+       * write a 13 segment digit to the display
+       *
+       * @param digit the digit to write to (1-6) which corresponds to upper_digit_n
+       * @param value the value to write to the digit (typical 13 segment values)
+       */
+      void writeUpperDigit( uint8_t digit, char value );
 
       void setup() override;
       void loop() override;
@@ -120,11 +137,13 @@ namespace esphome {
       binary_sensor::BinarySensor *show_time_{ nullptr };
       binary_sensor::BinarySensor *show_mic_{ nullptr };
       binary_sensor::BinarySensor *show_logo_{ nullptr };
+      sensor::Sensor *logo_flicker_{ nullptr };
+      sensor::Sensor *gif_play_count_global_{ nullptr };
 
-      // text_sensor::TextSensor *logo_animation_{ nullptr };
-      // text_sensor::TextSensor *gif_animation_{ nullptr };
-      // text_sensor::TextSensor *upper_text_{ nullptr };
-      // text_sensor::TextSensor *lower_text_{ nullptr };
+      text_sensor::TextSensor *logo_animation_{ nullptr };
+      text_sensor::TextSensor *gif_animation_{ nullptr };
+      text_sensor::TextSensor *upper_text_{ nullptr };
+      text_sensor::TextSensor *lower_text_{ nullptr };
 
       bool last_a_state_, last_b_state_, last_c_state_;
       bool a_press_registered_, b_press_registered_, c_press_registered_;
@@ -133,15 +152,57 @@ namespace esphome {
       int64_t last_time_;
 
       std::vector<uint32_t> logo_frames;
+      std::vector<uint16_t> logo_delays;
       int logo_frame_total{0};
       int logo_frame_index{0};
+      int64_t logo_last_frame_time_{0};
 
-      std::vector<uint32_t> gif_frames;
+      std::vector<uint64_t> gif_frames;
+      std::vector<uint16_t> gif_delays;
       int gif_frame_total{0};
       int gif_frame_index{0};
+      int64_t gif_last_frame_time_{0};
+      uint16_t gif_play_count_{0};    // 12-bit count from first 2 chars; 0 = loop forever
+      int gif_plays_remaining_{0};    // decrements each cycle; clears at 0 (only if gif_play_count_ > 0)
+      int gif_global_remaining_{-1};  // local mirror of the global counter sensor; -1 = uninitialized, 0 = disabled
+      int last_sent_global_{-1};      // last value we pushed to HA for the global counter (to filter echoes in the sensor callback)
+      bool gif_done_{false};          // true = animation has completed its play count
+
+      // leading-edge LED of each progress/bar group, so applyFlicker can
+      // leave it alone. -1 = no LEDs lit.
+      int cpu_bar_top_{-1};
+      int gpu_bar_top_{-1};
+      int ram_bar_top_{-1};
+      int vbar_1_top_{-1};
+      int vbar_2_top_{-1};
 
       char upper_text[64];
+      int upper_text_length_{0};
+      int upper_text_scroll_offset_{0};
+      int64_t upper_text_last_scroll_time_{0};
+      bool ota_active_{false};
+      // Boot-window gating so the firmware version stays visible for a few
+      // seconds on power-up before HA's upper_text overrides it. Any HA
+      // state received while locked is queued and applied when unlocked.
+      bool upper_text_boot_lock_{true};
+      bool pending_upper_text_set_{false};
+      std::string pending_upper_text_;
+
       char lower_text[64];
+      int lower_text_length_{0};
+      int lower_text_scroll_offset_{0};
+      int64_t lower_text_last_scroll_time_{0};
+      bool lower_text_active_{false};
+
+      // LEDs eligible for flickering: logo, DoW, horizontal bars, vertical bars, upper/lower digits
+      std::vector<int> flicker_leds_;
+
+      // tracks currently-flickered LEDs so we can restore them quickly
+      struct FlickerState {
+        int led;
+        int64_t time_us;
+      };
+      std::vector<FlickerState> active_flickers_;
 
       bool started = false;
       int counter = 0;
@@ -198,9 +259,44 @@ namespace esphome {
       void renderGIF();
 
       /**
+       * render scrolling upper text to the 14-segment digits, skipped during OTA
+       */
+      void renderUpperText();
+
+      /**
+       * render lower text to the 7-segment digits, skipped when inactive (clock shows instead)
+       */
+      void renderLowerText();
+
+      /**
+       * parse an 11-char-per-frame encoded string into gif_frames and gif_delays
+       *
+       * @param data the encoded animation string (6 bits per char, offset 0x30)
+       */
+      void parseGifData( const std::string &data );
+      void applyUpperTextFromHa( const std::string &value );
+
+      /**
        * render the logo
        */
       void renderLogo();
+
+      /**
+       * randomly turn off LEDs in the flickerable pool that are currently on
+       */
+      void applyFlicker();
+
+      /**
+       * populate flicker_leds_ with all LEDs eligible for random flickering
+       */
+      void buildFlickerList();
+
+      /**
+       * parse a 5-char-per-frame encoded string into logo_frames and logo_delays
+       *
+       * @param data the encoded animation string (6 bits per char, offset 0x30)
+       */
+      void parseLogoData( const std::string &data );
 
       /**
        * calculated the hour, minute and second digits and call the write functions
@@ -224,14 +320,6 @@ namespace esphome {
        * @param value the value to write to the digit (typical 7 segment values)
        */
       void writeLowerDigit(uint8_t digit, char value);
-
-      /**
-       * write a 13 segment digit to the display
-       * 
-       * @param digit the digit to write to (1-6) which corresponds to upper_digit_n
-       * @param value the value to write to the digit (typical 13 segment values)
-       */
-      void writeUpperDigit( uint8_t digit, char value );
 
       /**
        * set day of week

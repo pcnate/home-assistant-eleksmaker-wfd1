@@ -1,26 +1,33 @@
 {
   "name": "eleks",
-  "version": "1.0.0",
-  "description": "",
-  "main": "lib/index.js",
-  "scripts": {
-    "dev": "nodemon --watch src --exec ts-node src/index.ts",
-    "test": "echo \"Error: no test specified\" && exit 1"
-  },
+  "version": "1.0.0-rc.22",
+  "description": "AIDA64 System Monitor -> Home Assistant",
   "author": "Nathan Baker <pcnate@gmail.com>",
   "license": "MIT",
-  "dependencies": {
-    "@types/blessed": "^0.1.27",
-    "blessed": "^0.1.81",
-    "dotenv": "^17.2.3",
-    "mic": "^2.1.2",
-    "node-wmi": "^0.0.5"
+  "scripts": {
+    "start": "copy /Y dist\\eleks-monitor.exe dist\\eleks-monitor.running.exe >nul && .\\dist\\eleks-monitor.running.exe",
+    "start:daemon": "copy /Y dist\\eleks-monitor.exe dist\\eleks-monitor.running.exe >nul && .\\dist\\eleks-monitor.running.exe -d",
+    "build": "ts-node bin/build.ts",
+    "build:esphome": "docker run --rm -v \"%cd%:/config\" -v \"%cd%/components/elekswfd:/config/esphome/components/elekswfd\" ghcr.io/esphome/esphome compile /config/eleksmaker-home.yaml",
+    "upload:esphome": "ts-node bin/upload-esphome.ts",
+    "update:ha": "ts-node bin/update-ha.ts",
+    "set:upper": "ts-node bin/set-upper-text.ts",
+    "set:lower": "ts-node bin/set-lower-text.ts",
+    "create:helpers": "ts-node bin/create-ha-helpers.ts",
+    "show:gif": "ts-node bin/show-gif.ts",
+    "convert:presets": "ts-node bin/convert-presets.ts",
+    "update:version-h": "ts-node bin/update-version-h.ts",
+    "render:gif": "ts-node bin/render-gif.ts",
+    "create-installer": "iscc build/setup.iss",
+    "sign": "ts-node bin/sign.ts"
   },
   "devDependencies": {
-    "@types/dotenv": "^6.1.1",
-    "@types/node": "^22.13.10",
-    "nodemon": "^3.1.10",
+    "@types/node": "^25.6.0",
     "ts-node": "^10.9.2",
-    "typescript": "^5.8.2"
+    "typescript": "^6.0.3",
+    "semantic-release": "^25.0.3",
+    "@semantic-release/changelog": "^6.0.3",
+    "@semantic-release/exec": "^7.1.0",
+    "@semantic-release/git": "^10.0.1"
   }
 }

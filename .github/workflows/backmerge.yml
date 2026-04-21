@@ -1,0 +1,74 @@
+name: Backmerge
+
+# After a successful release on master/main, open a PR merging those commits
+# back into development so prereleases cut from development continue on top of
+# the latest stable. If no commits are ahead of development, this is a no-op.
+
+on:
+  workflow_run:
+    workflows: [Release]
+    types: [completed]
+    branches: [master, main]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  backmerge:
+    name: Open backmerge PR
+    if: github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Identify source branch
+        id: src
+        run: |
+          SRC="${{ github.event.workflow_run.head_branch }}"
+          echo "branch=$SRC" >> "$GITHUB_OUTPUT"
+          echo "Source: $SRC"
+
+      - name: Count commits ahead of development
+        id: check
+        run: |
+          git fetch --quiet origin "${{ steps.src.outputs.branch }}" development
+          COUNT=$(git rev-list --count "origin/development..origin/${{ steps.src.outputs.branch }}")
+          echo "count=$COUNT" >> "$GITHUB_OUTPUT"
+          echo "$COUNT commit(s) on ${{ steps.src.outputs.branch }} not yet in development"
+
+      - name: Find or create backmerge PR
+        id: pr
+        if: steps.check.outputs.count != '0'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          SRC="${{ steps.src.outputs.branch }}"
+          PR=$(gh pr list --base development --head "$SRC" --state open --json number --jq '.[0].number // empty')
+          if [ -z "$PR" ]; then
+            gh pr create \
+              --base development \
+              --head "$SRC" \
+              --title "chore: merge $SRC into development" \
+              --body "Auto-generated after a successful release on \`$SRC\`. Review for conflicts before merging."
+            PR=$(gh pr list --base development --head "$SRC" --state open --json number --jq '.[0].number')
+            echo "Created PR #$PR"
+          else
+            echo "PR #$PR already exists; skipping create"
+          fi
+          echo "number=$PR" >> "$GITHUB_OUTPUT"
+
+      - name: Try auto-merge
+        if: steps.pr.outputs.number != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Best-effort: enable auto-merge. Fails silently when blocked by
+          # required checks, conflicts, or branch protection — the PR then
+          # sits waiting for manual resolution.
+          gh pr merge "${{ steps.pr.outputs.number }}" --auto --merge \
+            || echo "Auto-merge unavailable — merge manually once ready"

@@ -1,8 +1,10 @@
 {
   "compilerOptions": {
-    "strict": true
+    "strict": true,
+    "module": "commonjs",
+    "target": "es2020",
+    "esModuleInterop": true,
+    "types": ["node"]
   },
-  "references": [
-    { "path": "./src/tsconfig.json" }
-  ]
+  "include": ["bin/**/*.ts"]
 }

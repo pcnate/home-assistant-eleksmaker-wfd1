@@ -217,7 +217,7 @@ namespace display {
   // logo seems to be 2 rows of 16 leds
   namespace logo {
     const int UPPER[] = { 244, 245, 246, 247, 240, 241, 242, 243, 252, 253, 254, 255, 248 };
-    const int LOWER[] = { 260, 261, 262, 263, 268, 269, 270, 271, 256, 257, 258, 259, 264 };
+    const int LOWER[] = { 260, 261, 262, 263, 256, 257, 258, 259, 268, 269, 270, 271, 264 };
   }
 
   namespace horizontal_bars {

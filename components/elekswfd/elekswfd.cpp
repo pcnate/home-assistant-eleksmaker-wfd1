@@ -1,4 +1,5 @@
 #include "elekswfd.h"
+#include "version.h"
 #include "esphome/core/log.h"
 #include "displays.cpp"
 #include "7_seg.cpp"
@@ -17,6 +18,9 @@
 #include "esphome/components/sensor/sensor.h"
 #include "esphome/components/text_sensor/text_sensor.h"
 #include "esphome/components/binary_sensor/binary_sensor.h"
+#include "esphome/components/api/api_server.h"
+#include "esphome/components/api/api_pb2.h"
+#include "esphome/components/api/homeassistant_service.h"
 #ifdef __INTELLISENSE__
 #pragma diag_default 1696
 #endif
@@ -25,6 +29,13 @@ namespace esphome {
 namespace elekswfd {
 
 static const char *TAG = "EleksWFD";
+
+// Hardcoded boot animation — plays from setup() until HA sends its first
+// state for input_text.eleksmaker_gif (even if blank). Captured from HA via
+// `npm run show:gif`; replace with any encoded animation string to change it.
+// The leading "00" prefix = play count 0 = loop forever, which is what we
+// want while waiting for HA.
+static const char *BOOT_GIF = "008@Ph?248000@P\\P3J24000PRH11=R200015A115A1oo115A105A1oo1151000A1oo111000001oo100000000no711000001oo1151000A1oo115A105A1oo115A115A1oo128B3QU8P0004@PdG24@000";
 
 void EleksWFD::setup() {
   ESP_LOGD(TAG, "Setup complete!");
@@ -50,6 +61,8 @@ void EleksWFD::setup() {
   this->invert_ram_usage = false;
 
   last_time_ = esp_timer_get_time();
+  logo_last_frame_time_ = last_time_;
+  gif_last_frame_time_ = last_time_;
 
   // initialize all registers to 0
   for (int i = 0; i < 24*16; i++) {
@@ -61,6 +74,47 @@ void EleksWFD::setup() {
   this->initializeButtons();
   this->initializeMicrophone();
   this->readTimeFromRTC();
+  this->buildFlickerList();
+
+  // play a hardcoded boot animation until HA sends a value (even if blank)
+  ESP_LOGI( TAG, "Loading boot GIF (%d chars)", (int) strlen( BOOT_GIF ) );
+  parseGifData( BOOT_GIF );
+
+  // Boot text format: "   v1-0-0-rc-20"
+  //   - 3 leading spaces so the version scrolls in from the right side of
+  //     the 6-digit display; otherwise the first char ('v') is already at
+  //     the leftmost digit and the '1' moves offscreen almost immediately.
+  //   - 'v' prefix for clarity.
+  //   - Periods swapped for hyphens since the dot segment doesn't render
+  //     between 14-seg digits.
+  const char *ver = ELEKSWFD_VERSION;
+  size_t vlen = strlen( ver );
+  const int PAD = 3;
+  int pos = 0;
+  for ( int i = 0; i < PAD && pos < 63; i++ ) upper_text[ pos++ ] = ' ';
+  if ( pos < 63 ) upper_text[ pos++ ] = 'v';
+  for ( size_t i = 0; i < vlen && pos < 63; i++ ) {
+    char c = ver[ i ];
+    upper_text[ pos++ ] = ( c == '.' ) ? '-' : c;
+  }
+  upper_text[ pos ] = '\0';
+  upper_text_length_ = pos;
+  upper_text_scroll_offset_ = 0;
+  upper_text_last_scroll_time_ = esp_timer_get_time();   // don't scroll on the first render
+  ESP_LOGI( TAG, "Boot version: %s", ELEKSWFD_VERSION );
+
+  // hold the version on screen for 5 s so it's visible even when HA pushes
+  // almost immediately on reboot. Any HA upper_text received during this
+  // window is stashed in pending_upper_text_ and applied when the lock
+  // releases.
+  this->set_timeout( "upper_text_boot_window", 5000, [ this ]() {
+    upper_text_boot_lock_ = false;
+    if ( pending_upper_text_set_ ) {
+      applyUpperTextFromHa( pending_upper_text_ );
+      pending_upper_text_set_ = false;
+      pending_upper_text_.clear();
+    }
+  });
 
   // this->updateTime( this->counter, this->counter, this->counter );
 
@@ -70,6 +124,7 @@ void EleksWFD::setup() {
   set_interval(   50, [this](){ this->readMicrophone(); });
   set_interval(  133, [this](){ this->updateExternals(); });
   set_interval(   50, [this](){ this->animate(); });
+  set_interval(   10, [this](){ this->applyFlicker(); });
 }
 
 void EleksWFD::loop() {
@@ -332,73 +387,158 @@ void EleksWFD::updateExternals() {
 }
 
 void EleksWFD::animate() {
-  // first we determine how much time has passed since the last call
   int64_t now = esp_timer_get_time();
   int64_t time_passed = now - last_time_;
-  last_time_ = now;
 
   if ( time_passed < 250 ) {
     return;
   }
+  last_time_ = now;
 
-  logo_frame_index++;
-  if ( logo_frame_index > logo_frames.size() ) {
-    logo_frame_index = 0;
+  // logo animation -- per-frame timing from encoded data
+  if ( logo_frame_total > 0 ) {
+    uint16_t logo_delay = logo_delays.size() > 0 ? logo_delays[ logo_frame_index ] : 250;
+    int64_t logo_elapsed = ( now - logo_last_frame_time_ ) / 1000;
+    if ( logo_elapsed >= logo_delay ) {
+      logo_frame_index++;
+      if ( logo_frame_index >= logo_frame_total ) {
+        logo_frame_index = 0;
+      }
+      logo_last_frame_time_ = now;
+    }
   }
 
-  gif_frame_index++;
-  if ( gif_frame_index > 64 ) {
-    gif_frame_index = 0;
+  // gif animation -- per-frame timing from encoded data
+  if ( gif_frame_total > 0 && !gif_done_ ) {
+    int64_t gif_elapsed = ( now - gif_last_frame_time_ ) / 1000;
+    uint16_t delay = gif_delays[ gif_frame_index ];
+    if ( gif_elapsed >= delay ) {
+      bool at_last_frame = ( gif_frame_index == gif_frame_total - 1 );
+      bool should_clear = false;
+
+      if ( at_last_frame ) {
+        // end of a cycle — check both counters
+
+        // per-animation count
+        if ( gif_play_count_ > 0 && gif_plays_remaining_ > 0 ) {
+          gif_plays_remaining_--;
+          if ( gif_plays_remaining_ == 0 ) should_clear = true;
+        }
+
+        // global count — tracked locally so it works regardless of whether the
+        // HA service-call sync succeeds. Snapshot the sensor on first cycle end
+        // after a new animation loads; after that, the local counter is the
+        // source of truth. HA is updated best-effort for visibility.
+        if ( gif_global_remaining_ < 0 ) {
+          int snapshot = 0;
+          bool sensor_ready = false;
+          if ( gif_play_count_global_ != nullptr && gif_play_count_global_->has_state() ) {
+            snapshot = static_cast<int>( gif_play_count_global_->state );
+            sensor_ready = true;
+          }
+          gif_global_remaining_ = snapshot > 0 ? snapshot : 0;
+          ESP_LOGI( TAG, "Global play count snapshot: %d (sensor_ready=%d, raw=%.1f)",
+                    gif_global_remaining_,
+                    sensor_ready ? 1 : 0,
+                    gif_play_count_global_ ? gif_play_count_global_->state : -1.0f );
+        }
+        if ( gif_global_remaining_ > 0 ) {
+          gif_global_remaining_--;
+          last_sent_global_ = gif_global_remaining_;
+#if defined( USE_API ) && defined( USE_API_HOMEASSISTANT_SERVICES )
+          if ( api::global_api_server != nullptr ) {
+            static char global_value_buf[ 8 ];
+            snprintf( global_value_buf, sizeof( global_value_buf ), "%d", gif_global_remaining_ );
+            api::HomeassistantActionRequest dec_req;
+            dec_req.service = StringRef( "input_number.set_value" );
+            dec_req.data.init( 2 );
+            auto &k1 = dec_req.data.emplace_back();
+            k1.key = StringRef( "entity_id" );
+            k1.value = StringRef( "input_number.eleksmaker_gif_play_count" );
+            auto &k2 = dec_req.data.emplace_back();
+            k2.key = StringRef( "value" );
+            k2.value = StringRef( global_value_buf );
+            api::global_api_server->send_homeassistant_action( dec_req );
+          }
+#endif
+          ESP_LOGI( TAG, "Global play count: %d remaining", gif_global_remaining_ );
+          if ( gif_global_remaining_ == 0 ) should_clear = true;
+        }
+      }
+
+      if ( should_clear ) {
+        gif_done_ = true;
+#if defined( USE_API ) && defined( USE_API_HOMEASSISTANT_SERVICES )
+        // clear the GIF entity so re-pushing the same value re-triggers
+        if ( api::global_api_server != nullptr ) {
+          api::HomeassistantActionRequest clear_req;
+          clear_req.service = StringRef( "input_text.set_value" );
+          clear_req.data.init( 2 );
+          auto &k1 = clear_req.data.emplace_back();
+          k1.key = StringRef( "entity_id" );
+          k1.value = StringRef( "input_text.eleksmaker_gif" );
+          auto &k2 = clear_req.data.emplace_back();
+          k2.key = StringRef( "value" );
+          k2.value = StringRef( "" );
+          api::global_api_server->send_homeassistant_action( clear_req );
+        }
+#endif
+      } else {
+        gif_frame_index++;
+        if ( gif_frame_index >= gif_frame_total ) {
+          gif_frame_index = 0;
+        }
+      }
+      gif_last_frame_time_ = now;
+    }
   }
 
   this->renderGIF();
   this->renderLogo();
+  this->renderUpperText();
+  this->renderLowerText();
 }
 
 void EleksWFD::renderGIF() {
-  bool showGIF = true;
-  // if ( show_logo_ != nullptr ) {
-  //   showGIF = show_logo_->state;
-  // }
-  
-  // use the const array from esphome::elekswfd::display::matrix::CIRCLE and ROW_x to populate indexs
-  int indexs[61] = {};
+  // build the LED index map: rows 0-6 (7 LEDs each) then circle (12 LEDs)
+  const int *ROWS[] = {
+    esphome::elekswfd::display::matrix::ROW_0,
+    esphome::elekswfd::display::matrix::ROW_1,
+    esphome::elekswfd::display::matrix::ROW_2,
+    esphome::elekswfd::display::matrix::ROW_3,
+    esphome::elekswfd::display::matrix::ROW_4,
+    esphome::elekswfd::display::matrix::ROW_5,
+    esphome::elekswfd::display::matrix::ROW_6,
+  };
 
-  for (int i = 60; i > -1; i--) {
-    if ( i > 48 ) {
-      indexs[i] = esphome::elekswfd::display::matrix::CIRCLE[i-49];
-    } else
-    if ( i > 41 ) {
-      indexs[i] = esphome::elekswfd::display::matrix::ROW_6[i-42];
-    } else
-    if ( i > 34 ) {
-      indexs[i] = esphome::elekswfd::display::matrix::ROW_5[i-35];
-    } else
-    if ( i > 27 ) {
-      indexs[i] = esphome::elekswfd::display::matrix::ROW_4[i-28];
-    } else
-    if ( i > 20 ) {
-      indexs[i] = esphome::elekswfd::display::matrix::ROW_3[i-21];
-    } else
-    if ( i > 13 ) {
-      indexs[i] = esphome::elekswfd::display::matrix::ROW_2[i-14];
-    } else
-    if ( i > 6 ) {
-      indexs[i] = esphome::elekswfd::display::matrix::ROW_1[i-7];
-    } else {
-      indexs[i] = esphome::elekswfd::display::matrix::ROW_0[i];
+  if ( gif_frame_total == 0 || gif_done_ ) {
+    // no frames loaded or animation finished -- blank the matrix and circle
+    for ( int row = 0; row < 7; row++ ) {
+      for ( int col = 0; col < 7; col++ ) {
+        display_elements[ ROWS[ row ][ col ] ] = false;
+      }
+    }
+    for ( int i = 0; i < 12; i++ ) {
+      display_elements[ esphome::elekswfd::display::matrix::CIRCLE[ i ] ] = false;
+    }
+    return;
+  }
+
+  uint64_t frame = gif_frames[ gif_frame_index ];
+
+  // bits 0-48: 7 rows of 7 bits each
+  for ( int row = 0; row < 7; row++ ) {
+    uint8_t row_bits = ( frame >> ( row * 7 ) ) & 0x7F;
+    for ( int col = 0; col < 7; col++ ) {
+      display_elements[ ROWS[ row ][ col ] ] = ( row_bits >> col ) & 1;
     }
   }
 
-  for (int i = 0; i < 61; i++) {
-    if ( showGIF ) {
-      const bool bit = (i % 2) == (gif_frame_index % 2);
-      display_elements[ indexs[i] ] = bit;
-    } else {
-      display_elements[ indexs[i] ] = false;
-    }
+  // bits 49-60: 12 circle LEDs
+  uint16_t circle_bits = ( frame >> 49 ) & 0x0FFF;
+  for ( int i = 0; i < 12; i++ ) {
+    display_elements[ esphome::elekswfd::display::matrix::CIRCLE[ i ] ] = ( circle_bits >> i ) & 1;
   }
-
 }
 
 void EleksWFD::renderLogo() {
@@ -435,7 +575,264 @@ void EleksWFD::renderLogo() {
   }
 }
 
+void EleksWFD::buildFlickerList() {
+  using namespace esphome::elekswfd::display;
+  flicker_leds_.clear();
+
+  // logo (26 LEDs)
+  for ( int i = 0; i < 13; i++ ) {
+    flicker_leds_.push_back( logo::UPPER[ i ] );
+    flicker_leds_.push_back( logo::LOWER[ i ] );
+  }
+
+  // day of week (15 LEDs)
+  for ( int i = 0; i < 2; i++ ) {
+    flicker_leds_.push_back( day_of_week::MONDAY[ i ] );
+    flicker_leds_.push_back( day_of_week::TUESDAY[ i ] );
+    flicker_leds_.push_back( day_of_week::WEDNESDAY[ i ] );
+    flicker_leds_.push_back( day_of_week::THURSDAY[ i ] );
+    flicker_leds_.push_back( day_of_week::FRIDAY[ i ] );
+    flicker_leds_.push_back( day_of_week::SATURDAY[ i ] );
+  }
+  for ( int i = 0; i < 3; i++ ) {
+    flicker_leds_.push_back( day_of_week::SUNDAY[ i ] );
+  }
+
+  // horizontal bar groups: logo + bar + percentage = 22 LEDs each, 3 groups (66)
+  flicker_leds_.push_back( horizontal_bars::CPU_LOGO[ 0 ] );
+  for ( int i = 0; i < 20; i++ ) flicker_leds_.push_back( horizontal_bars::CPU_BAR[ i ] );
+  flicker_leds_.push_back( horizontal_bars::CPU_PERCENTAGE[ 0 ] );
+
+  flicker_leds_.push_back( horizontal_bars::GPU_LOGO[ 0 ] );
+  for ( int i = 0; i < 20; i++ ) flicker_leds_.push_back( horizontal_bars::GPU_BAR[ i ] );
+  flicker_leds_.push_back( horizontal_bars::GPU_PERCENTAGE[ 0 ] );
+
+  flicker_leds_.push_back( horizontal_bars::RAM_LOGO[ 0 ] );
+  for ( int i = 0; i < 20; i++ ) flicker_leds_.push_back( horizontal_bars::RAM_BAR[ i ] );
+  flicker_leds_.push_back( horizontal_bars::RAM_PERCENTAGE[ 0 ] );
+
+  // vertical bars (24 LEDs)
+  for ( int i = 0; i < 12; i++ ) {
+    flicker_leds_.push_back( vertical_bars::BAR_1[ i ] );
+    flicker_leds_.push_back( vertical_bars::BAR_2[ i ] );
+  }
+
+  // upper 14-segment digits (6 * 13 = 78 LEDs)
+  const int upper_segs[ 6 ][ 13 ] = {
+    { UPPER_DIGIT_1::SEG_A, UPPER_DIGIT_1::SEG_B, UPPER_DIGIT_1::SEG_C, UPPER_DIGIT_1::SEG_D, UPPER_DIGIT_1::SEG_E, UPPER_DIGIT_1::SEG_F, UPPER_DIGIT_1::SEG_G, UPPER_DIGIT_1::SEG_H, UPPER_DIGIT_1::SEG_I, UPPER_DIGIT_1::SEG_J, UPPER_DIGIT_1::SEG_K, UPPER_DIGIT_1::SEG_L, UPPER_DIGIT_1::SEG_M },
+    { UPPER_DIGIT_2::SEG_A, UPPER_DIGIT_2::SEG_B, UPPER_DIGIT_2::SEG_C, UPPER_DIGIT_2::SEG_D, UPPER_DIGIT_2::SEG_E, UPPER_DIGIT_2::SEG_F, UPPER_DIGIT_2::SEG_G, UPPER_DIGIT_2::SEG_H, UPPER_DIGIT_2::SEG_I, UPPER_DIGIT_2::SEG_J, UPPER_DIGIT_2::SEG_K, UPPER_DIGIT_2::SEG_L, UPPER_DIGIT_2::SEG_M },
+    { UPPER_DIGIT_3::SEG_A, UPPER_DIGIT_3::SEG_B, UPPER_DIGIT_3::SEG_C, UPPER_DIGIT_3::SEG_D, UPPER_DIGIT_3::SEG_E, UPPER_DIGIT_3::SEG_F, UPPER_DIGIT_3::SEG_G, UPPER_DIGIT_3::SEG_H, UPPER_DIGIT_3::SEG_I, UPPER_DIGIT_3::SEG_J, UPPER_DIGIT_3::SEG_K, UPPER_DIGIT_3::SEG_L, UPPER_DIGIT_3::SEG_M },
+    { UPPER_DIGIT_4::SEG_A, UPPER_DIGIT_4::SEG_B, UPPER_DIGIT_4::SEG_C, UPPER_DIGIT_4::SEG_D, UPPER_DIGIT_4::SEG_E, UPPER_DIGIT_4::SEG_F, UPPER_DIGIT_4::SEG_G, UPPER_DIGIT_4::SEG_H, UPPER_DIGIT_4::SEG_I, UPPER_DIGIT_4::SEG_J, UPPER_DIGIT_4::SEG_K, UPPER_DIGIT_4::SEG_L, UPPER_DIGIT_4::SEG_M },
+    { UPPER_DIGIT_5::SEG_A, UPPER_DIGIT_5::SEG_B, UPPER_DIGIT_5::SEG_C, UPPER_DIGIT_5::SEG_D, UPPER_DIGIT_5::SEG_E, UPPER_DIGIT_5::SEG_F, UPPER_DIGIT_5::SEG_G, UPPER_DIGIT_5::SEG_H, UPPER_DIGIT_5::SEG_I, UPPER_DIGIT_5::SEG_J, UPPER_DIGIT_5::SEG_K, UPPER_DIGIT_5::SEG_L, UPPER_DIGIT_5::SEG_M },
+    { UPPER_DIGIT_6::SEG_A, UPPER_DIGIT_6::SEG_B, UPPER_DIGIT_6::SEG_C, UPPER_DIGIT_6::SEG_D, UPPER_DIGIT_6::SEG_E, UPPER_DIGIT_6::SEG_F, UPPER_DIGIT_6::SEG_G, UPPER_DIGIT_6::SEG_H, UPPER_DIGIT_6::SEG_I, UPPER_DIGIT_6::SEG_J, UPPER_DIGIT_6::SEG_K, UPPER_DIGIT_6::SEG_L, UPPER_DIGIT_6::SEG_M },
+  };
+  for ( int d = 0; d < 6; d++ ) {
+    for ( int s = 0; s < 13; s++ ) flicker_leds_.push_back( upper_segs[ d ][ s ] );
+  }
+
+  // lower 7-segment digits (6 * 7 = 42 LEDs)
+  const int lower_segs[ 6 ][ 7 ] = {
+    { LOWER_DIGIT_1::SEG_A, LOWER_DIGIT_1::SEG_B, LOWER_DIGIT_1::SEG_C, LOWER_DIGIT_1::SEG_D, LOWER_DIGIT_1::SEG_E, LOWER_DIGIT_1::SEG_F, LOWER_DIGIT_1::SEG_G },
+    { LOWER_DIGIT_2::SEG_A, LOWER_DIGIT_2::SEG_B, LOWER_DIGIT_2::SEG_C, LOWER_DIGIT_2::SEG_D, LOWER_DIGIT_2::SEG_E, LOWER_DIGIT_2::SEG_F, LOWER_DIGIT_2::SEG_G },
+    { LOWER_DIGIT_3::SEG_A, LOWER_DIGIT_3::SEG_B, LOWER_DIGIT_3::SEG_C, LOWER_DIGIT_3::SEG_D, LOWER_DIGIT_3::SEG_E, LOWER_DIGIT_3::SEG_F, LOWER_DIGIT_3::SEG_G },
+    { LOWER_DIGIT_4::SEG_A, LOWER_DIGIT_4::SEG_B, LOWER_DIGIT_4::SEG_C, LOWER_DIGIT_4::SEG_D, LOWER_DIGIT_4::SEG_E, LOWER_DIGIT_4::SEG_F, LOWER_DIGIT_4::SEG_G },
+    { LOWER_DIGIT_5::SEG_A, LOWER_DIGIT_5::SEG_B, LOWER_DIGIT_5::SEG_C, LOWER_DIGIT_5::SEG_D, LOWER_DIGIT_5::SEG_E, LOWER_DIGIT_5::SEG_F, LOWER_DIGIT_5::SEG_G },
+    { LOWER_DIGIT_6::SEG_A, LOWER_DIGIT_6::SEG_B, LOWER_DIGIT_6::SEG_C, LOWER_DIGIT_6::SEG_D, LOWER_DIGIT_6::SEG_E, LOWER_DIGIT_6::SEG_F, LOWER_DIGIT_6::SEG_G },
+  };
+  for ( int d = 0; d < 6; d++ ) {
+    for ( int s = 0; s < 7; s++ ) flicker_leds_.push_back( lower_segs[ d ][ s ] );
+  }
+
+  // digit separator colons
+  flicker_leds_.push_back( LOWER_DIGIT_SEPARATOR_1 );
+  flicker_leds_.push_back( LOWER_DIGIT_SEPARATOR_2 );
+
+  ESP_LOGI( TAG, "Flicker pool: %d LEDs", (int) flicker_leds_.size() );
+}
+
+
+void EleksWFD::applyFlicker() {
+  if ( flicker_leds_.empty() ) return;
+
+  int64_t now = esp_timer_get_time();
+  const int64_t FLICKER_DURATION_US = 40000; // 40ms off time
+
+  // restore LEDs that have been flickered long enough
+  for ( auto it = active_flickers_.begin(); it != active_flickers_.end(); ) {
+    if ( now - it->time_us >= FLICKER_DURATION_US ) {
+      display_elements[ it->led ] = true;
+      it = active_flickers_.erase( it );
+    } else {
+      ++it;
+    }
+  }
+
+  // flicker rate in flickers-per-second from HA input_number (default 0)
+  if ( logo_flicker_ == nullptr || !logo_flicker_->has_state() ) return;
+  float rate = logo_flicker_->state;
+  if ( rate <= 0.0f ) return;
+
+  // probability per 10ms tick = rate / 100 (since we tick 100x/sec)
+  // threshold out of 256 = ( rate * 256 ) / 100
+  int threshold = static_cast<int>( ( rate * 256.0f ) / 100.0f );
+  if ( threshold > 256 ) threshold = 256;
+
+  uint32_t rand = esp_random();
+  if ( static_cast<int>( rand & 0xFF ) < threshold ) {
+    int led = flicker_leds_[ ( rand >> 8 ) % flicker_leds_.size() ];
+
+    // skip the leading-edge LED of each bar group so the "current value"
+    // indicator doesn't blink and confuse the reading
+    using namespace esphome::elekswfd::display;
+    if ( cpu_bar_top_ >= 0 && led == horizontal_bars::CPU_BAR[ cpu_bar_top_ ] ) return;
+    if ( gpu_bar_top_ >= 0 && led == horizontal_bars::GPU_BAR[ gpu_bar_top_ ] ) return;
+    if ( ram_bar_top_ >= 0 && led == horizontal_bars::RAM_BAR[ ram_bar_top_ ] ) return;
+    if ( vbar_1_top_  >= 0 && led == vertical_bars::BAR_1[ vbar_1_top_ ] ) return;
+    if ( vbar_2_top_  >= 0 && led == vertical_bars::BAR_2[ vbar_2_top_ ] ) return;
+
+    if ( display_elements[ led ] ) {
+      display_elements[ led ] = false;
+      active_flickers_.push_back( { led, now } );
+    }
+  }
+}
+
+
+void EleksWFD::renderUpperText() {
+  if ( ota_active_ ) return;
+
+  // treat empty or all-whitespace as "no user text" -> show date
+  bool blank = upper_text_length_ == 0;
+  if ( !blank ) {
+    blank = true;
+    for ( int i = 0; i < upper_text_length_; i++ ) {
+      if ( upper_text[ i ] != ' ' ) { blank = false; break; }
+    }
+  }
+
+  // no user text -> show date as "MMM DD" (APR 16, MAR  1)
+  if ( blank ) {
+    static const char *MONTHS[] = {
+      "JAN", "FEB", "MAR", "APR", "MAY", "JUN",
+      "JUL", "AUG", "SEP", "OCT", "NOV", "DEC",
+    };
+    if ( time_ != nullptr ) {
+      auto t = time_->now();
+      if ( t.is_valid() && t.month >= 1 && t.month <= 12 ) {
+        const char *m = MONTHS[ t.month - 1 ];
+        writeUpperDigit( 1, m[ 0 ] );
+        writeUpperDigit( 2, m[ 1 ] );
+        writeUpperDigit( 3, m[ 2 ] );
+        writeUpperDigit( 4, ' ' );
+        writeUpperDigit( 5, t.day_of_month >= 10 ? static_cast<char>( ( t.day_of_month / 10 ) + '0' ) : ' ' );
+        writeUpperDigit( 6, static_cast<char>( ( t.day_of_month % 10 ) + '0' ) );
+        return;
+      }
+    }
+    // no valid time - blank the digits
+    for ( int i = 1; i <= 6; i++ ) writeUpperDigit( i, ' ' );
+    return;
+  }
+
+  int64_t now = esp_timer_get_time();
+
+  // scrolling for text longer than 6 chars
+  if ( upper_text_length_ > 6 ) {
+    int64_t elapsed = ( now - upper_text_last_scroll_time_ ) / 1000;
+    if ( elapsed >= 300 ) {
+      upper_text_scroll_offset_++;
+      // wrap with a 3-space gap
+      if ( upper_text_scroll_offset_ >= upper_text_length_ + 3 ) {
+        upper_text_scroll_offset_ = 0;
+      }
+      upper_text_last_scroll_time_ = now;
+    }
+  }
+
+  for ( int i = 0; i < 6; i++ ) {
+    int idx = upper_text_scroll_offset_ + i;
+    char c;
+    if ( upper_text_length_ <= 6 ) {
+      // static: left-aligned, blank remaining
+      c = i < upper_text_length_ ? upper_text[ i ] : ' ';
+    } else {
+      // scrolling: wrap index with gap
+      int total = upper_text_length_ + 3;
+      idx = idx % total;
+      c = idx < upper_text_length_ ? upper_text[ idx ] : ' ';
+    }
+    writeUpperDigit( i + 1, c );
+  }
+}
+
+
+void EleksWFD::renderLowerText() {
+  if ( !lower_text_active_ ) return;
+
+  int64_t now = esp_timer_get_time();
+
+  // scrolling for text longer than 6 chars
+  if ( lower_text_length_ > 6 ) {
+    int64_t elapsed = ( now - lower_text_last_scroll_time_ ) / 1000;
+    if ( elapsed >= 300 ) {
+      lower_text_scroll_offset_++;
+      if ( lower_text_scroll_offset_ >= lower_text_length_ + 3 ) {
+        lower_text_scroll_offset_ = 0;
+      }
+      lower_text_last_scroll_time_ = now;
+    }
+  }
+
+  for ( int i = 0; i < 6; i++ ) {
+    char c;
+    if ( lower_text_length_ <= 6 ) {
+      c = i < lower_text_length_ ? lower_text[ i ] : ' ';
+    } else {
+      int total = lower_text_length_ + 3;
+      int idx = ( lower_text_scroll_offset_ + i ) % total;
+      c = idx < lower_text_length_ ? lower_text[ idx ] : ' ';
+    }
+    writeLowerDigit( i + 1, c );
+  }
+}
+
+
+void EleksWFD::setOtaProgress( int pct ) {
+  if ( pct < 0 ) {
+    // OTA ended or errored -- resume normal text
+    ota_active_ = false;
+    return;
+  }
+
+  ota_active_ = true;
+
+  if ( pct > 100 ) pct = 100;
+
+  // "UPd" on digits 1-3
+  writeUpperDigit( 1, 'U' );
+  writeUpperDigit( 2, 'P' );
+  writeUpperDigit( 3, 'd' );
+
+  // percentage right-aligned on digits 4-6
+  if ( pct >= 100 ) {
+    writeUpperDigit( 4, '1' );
+    writeUpperDigit( 5, '0' );
+    writeUpperDigit( 6, '0' );
+  } else {
+    writeUpperDigit( 4, ' ' );
+    writeUpperDigit( 5, pct >= 10 ? static_cast<char>( ( pct / 10 ) + '0' ) : ' ' );
+    writeUpperDigit( 6, static_cast<char>( ( pct % 10 ) + '0' ) );
+  }
+}
+
+
 void EleksWFD::updateTime( int hour, int minute, int second ) {
+  if ( lower_text_active_ ) {
+    display_elements[ esphome::elekswfd::display::LOWER_DIGIT_SEPARATOR_1 ] = false;
+    display_elements[ esphome::elekswfd::display::LOWER_DIGIT_SEPARATOR_2 ] = false;
+    return;
+  }
+
   bool showClock = true;
   if ( show_time_ != nullptr ) {
     showClock = show_time_->state;
@@ -681,8 +1078,8 @@ void EleksWFD::writeUpperDigit( uint8_t digit, char value ) {
     return;
   }
 
-  // get the 7 segment value
-  uint8_t fourteen_seg = FourteenSegmentASCII[index];
+  // get the 14 segment value
+  uint16_t fourteen_seg = FourteenSegmentASCII[index];
 
   // map the bits in fourteen_seg to the correct segments
   display_elements[seg_a] = (fourteen_seg & 0b000000000000001) > 0;
@@ -725,6 +1122,7 @@ void EleksWFD::setCpuUsage( uint8_t value ) {
   for ( int i = 0; i < 20; i++ ) {
     display_elements[ esphome::elekswfd::display::horizontal_bars::CPU_BAR[i] ] = i < val;
   }
+  cpu_bar_top_ = val > 0 ? val - 1 : -1;
 }
 
 void EleksWFD::setGpuUsage( uint8_t value ) {
@@ -737,6 +1135,7 @@ void EleksWFD::setGpuUsage( uint8_t value ) {
   for ( int i = 0; i < 20; i++ ) {
     display_elements[ esphome::elekswfd::display::horizontal_bars::GPU_BAR[i] ] = i < val;
   }
+  gpu_bar_top_ = val > 0 ? val - 1 : -1;
 }
 
 void EleksWFD::setRamUsage( uint8_t value ) {
@@ -749,25 +1148,57 @@ void EleksWFD::setRamUsage( uint8_t value ) {
   for ( int i = 0; i < 20; i++ ) {
     display_elements[ esphome::elekswfd::display::horizontal_bars::RAM_BAR[i] ] = i < val;
   }
+  ram_bar_top_ = val > 0 ? val - 1 : -1;
 }
 
 void EleksWFD::setBarChart( bool bar, uint8_t _value ) {
-  if ( _value > 100 ) {
-    ESP_LOGW( TAG, "Invalid value %d/100, using 100/100", _value );
-    _value = 100;
+  // 12 LEDs representing 35°C to 90°C in 5°C steps
+  // LED 0 = 35°C, LED 1 = 40°C, ... LED 11 = 90°C
+  // LED 0 lights if temp > 35, all off below 35, capped at 100
+  if ( _value > 100 ) _value = 100;
+
+  int value = 0;
+  if ( _value > 35 ) {
+    value = ( _value - 35 ) / 5 + 1;
+    if ( value > 12 ) value = 12;
   }
 
-  // convert the _value range of 0-100 to 0-12 and round to nearest whole number
-  int value = static_cast<int>( round( _value / 8.333333 ) );
-
-  // loop through each element in the vertical bar and set it to true if it is less than the value
   for ( int i = 0; i < 12; i++ ) {
-    if ( !bar ) { // element 0 should be on when the value is 1+ and off when the value is 0
+    if ( !bar ) {
       display_elements[ esphome::elekswfd::display::vertical_bars::BAR_1[i] ] = i < value;
     } else {
       display_elements[ esphome::elekswfd::display::vertical_bars::BAR_2[i] ] = i < value;
     }
   }
+  if ( !bar ) vbar_1_top_ = value > 0 ? value - 1 : -1;
+  else        vbar_2_top_ = value > 0 ? value - 1 : -1;
+}
+
+
+/**
+ * Wire up the global GIF play count sensor AND install a live callback so
+ * changes from HA apply immediately instead of waiting for the next
+ * animation load. We filter out the sensor echo caused by our own decrement
+ * writes via `last_sent_global_`.
+ */
+void EleksWFD::set_gif_play_count( sensor::Sensor *sens ) {
+  gif_play_count_global_ = sens;
+  if ( sens == nullptr ) return;
+
+  sens->add_on_state_callback( [ this ]( float value ) {
+    int n = static_cast<int>( value );
+
+    // filter echoes of values we just pushed to HA from the decrement path
+    if ( n == last_sent_global_ ) return;
+
+    // Only applies to a live animation. If the animation already finished
+    // (gif_done_) or no frames are loaded, the user/automation is expected
+    // to push a GIF string to kick off the next run — at which point
+    // parseGifData resets gif_global_remaining_ and the count is re-read
+    // from the sensor on the first at_last_frame.
+    gif_global_remaining_ = n;
+    ESP_LOGI( TAG, "Global play count externally set to %d", n );
+  });
 }
 
 void EleksWFD::setWeather( int mode ) {
@@ -927,48 +1358,216 @@ void EleksWFD::readTimeFromRTC() {
 /**
  * @brief Update the time on the display
  */
-void EleksWFD::set_logo_animation(text_sensor::TextSensor *sens) {
+void EleksWFD::set_logo_animation( text_sensor::TextSensor *sens ) {
+  logo_animation_ = sens;
+
+  if ( sens == nullptr ) return;
+
+  // parse initial state if available
+  if ( sens->has_state() && sens->state.length() > 0 ) {
+    parseLogoData( sens->state );
+  }
+
+  // listen for live updates from HA
+  sens->add_on_state_callback( [this]( const std::string &value ) {
+    ESP_LOGI( TAG, "Logo data updated (%d chars)", value.length() );
+    parseLogoData( value );
+  });
+}
+
+
+/**
+ * Parse 5-char-per-frame encoded string into logo_frames and logo_delays.
+ *
+ * Each char minus 0x30 ('0') yields 6 bits. 5 chars = 30 bits per frame.
+ * Bit layout (packed LSB-first):
+ *   bits 0-12:  LOWER LEDs (13 bits)
+ *   bits 13-25: UPPER LEDs (13 bits)
+ *   bits 26-27: timing preset
+ *
+ * Timing presets: 00=50ms, 01=100ms, 10=250ms, 11=500ms
+ * Valid chars: '0' (0x30) through 'o' (0x6F)
+ */
+void EleksWFD::parseLogoData( const std::string &data ) {
+  static const uint16_t TIMING_PRESETS[] = { 50, 100, 200, 500 };
+
   logo_frames.clear();
-  
-  if ( sens == nullptr || !sens->has_state() ) {
-    logo_frames.push_back( 0x0FEFEFEF );
-    logo_frames.push_back( 0x0EFEFEFE );
-    logo_frames.push_back( 0x03FFFFFF );
-    logo_frames.push_back( 0x0FEFEFEF );
-    logo_frames.push_back( 0x0EFEFEFE );
-    logo_frames.push_back( 0x03FFFFFF );
-    logo_frame_total = logo_frames.size();
-    logo_frame_index = 0;
-    return;
-  }
+  logo_delays.clear();
+  logo_frame_index = 0;
+  logo_frame_total = 0;
+  logo_last_frame_time_ = esp_timer_get_time();
 
-  if ( sens->state.length() == 0 ) {
-    logo_frame_total = 0;
-    logo_frame_index = 0;
-    return;
-  }
+  if ( data.length() < 5 ) return;
 
-  const std::string &data = sens->state;
-  std::stringstream ss( data );
-  std::string frame_str;
+  int frame_count = data.length() / 5;
 
-  while ( std::getline( ss, frame_str, ',' ) ) {
-    if ( frame_str.empty() ) continue;
-    uint32_t frame = std::stoul( frame_str, nullptr, 16 );
-    logo_frames.push_back( frame & 0x00FFFFFF );
+  for ( int f = 0; f < frame_count; f++ ) {
+    int offset = f * 5;
+    uint32_t bits = 0;
+
+    for ( int i = 0; i < 5; i++ ) {
+      uint8_t val = static_cast<uint8_t>( data[ offset + i ] ) - 0x30;
+      bits |= static_cast<uint32_t>( val & 0x3F ) << ( i * 6 );
+    }
+
+    uint32_t frame = bits & 0x03FFFFFF; // bits 0-25: 26 LED bits
+    uint8_t timing_idx = ( bits >> 26 ) & 0x03;
+
+    logo_frames.push_back( frame );
+    logo_delays.push_back( TIMING_PRESETS[ timing_idx ] );
   }
 
   logo_frame_total = logo_frames.size();
-  logo_frame_index = 0;
+  ESP_LOGI( TAG, "Parsed %d logo frames", logo_frame_total );
 }
-void EleksWFD::set_gif_animation(text_sensor::TextSensor *sens) {
-  
+void EleksWFD::set_gif_animation( text_sensor::TextSensor *sens ) {
+  gif_animation_ = sens;
+
+  if ( sens == nullptr ) return;
+
+  // parse initial state if available — honor blank values too so a cleared
+  // HA entity overrides the boot animation
+  if ( sens->has_state() ) {
+    parseGifData( sens->state );
+  }
+
+  // listen for live updates from HA
+  sens->add_on_state_callback( [this]( const std::string &value ) {
+    ESP_LOGI( TAG, "GIF data updated (%d chars)", value.length() );
+    parseGifData( value );
+  });
 }
-void EleksWFD::set_upper_text(text_sensor::TextSensor *sens) {
-  
+
+
+/**
+ * Parse 11-char-per-frame encoded string into gif_frames and gif_delays.
+ *
+ * Each char minus 0x30 ('0') yields 6 bits. 11 chars = 66 bits per frame.
+ * Bit layout (packed LSB-first):
+ *   bits 0-48:  matrix rows 0-6 (7 bits each)
+ *   bits 49-60: circle LEDs (12 bits)
+ *   bits 61-62: timing preset
+ *
+ * Timing presets: 00=50ms, 01=100ms, 10=250ms, 11=500ms
+ * Valid chars: '0' (0x30) through 'o' (0x6F)
+ */
+void EleksWFD::parseGifData( const std::string &data ) {
+  static const uint16_t TIMING_PRESETS[] = { 50, 100, 200, 500 };
+
+  gif_frames.clear();
+  gif_delays.clear();
+  gif_frame_index = 0;
+  gif_frame_total = 0;
+  gif_last_frame_time_ = esp_timer_get_time();
+  gif_play_count_ = 0;
+  gif_plays_remaining_ = 0;
+  gif_global_remaining_ = -1;   // re-snapshot the sensor on next cycle end
+  last_sent_global_ = -1;       // reset echo filter for this animation
+  gif_done_ = false;
+
+  // new format: 2 prefix chars (12-bit play count) + N * 11 chars of frames
+  if ( data.length() < 2 + 11 ) return;
+
+  uint8_t p_low  = static_cast<uint8_t>( data[ 0 ] ) - 0x30;
+  uint8_t p_high = static_cast<uint8_t>( data[ 1 ] ) - 0x30;
+  gif_play_count_ = ( p_low & 0x3F ) | ( ( p_high & 0x3F ) << 6 );
+  gif_plays_remaining_ = gif_play_count_;
+
+  int frame_count = ( data.length() - 2 ) / 11;
+
+  for ( int f = 0; f < frame_count; f++ ) {
+    int offset = 2 + f * 11;
+    uint64_t bits = 0;
+
+    for ( int i = 0; i < 11; i++ ) {
+      uint8_t val = static_cast<uint8_t>( data[ offset + i ] ) - 0x30;
+      bits |= static_cast<uint64_t>( val & 0x3F ) << ( i * 6 );
+    }
+
+    uint64_t frame = bits & 0x1FFFFFFFFFFFFFFFull;
+    uint8_t timing_idx = ( bits >> 61 ) & 0x03;
+
+    gif_frames.push_back( frame );
+    gif_delays.push_back( TIMING_PRESETS[ timing_idx ] );
+  }
+
+  gif_frame_total = gif_frames.size();
+  ESP_LOGI( TAG, "Parsed %d GIF frames (play_count=%u)", gif_frame_total, gif_play_count_ );
 }
-void EleksWFD::set_lower_text(text_sensor::TextSensor *sens) {
-  
+void EleksWFD::applyUpperTextFromHa( const std::string &value ) {
+  upper_text_length_ = value.length() > 63 ? 63 : static_cast<int>( value.length() );
+  memcpy( upper_text, value.c_str(), upper_text_length_ );
+  upper_text[ upper_text_length_ ] = '\0';
+  upper_text_scroll_offset_ = 0;
+}
+
+
+void EleksWFD::set_upper_text( text_sensor::TextSensor *sens ) {
+  upper_text_ = sens;
+
+  if ( sens == nullptr ) return;
+
+  // parse initial state if available — honor blank too so a cleared HA value
+  // overrides the version string shown on boot. If the boot lock is active
+  // the value is stashed and applied once the 5 s boot window expires.
+  if ( sens->has_state() ) {
+    const std::string &val = sens->state;
+    if ( upper_text_boot_lock_ ) {
+      pending_upper_text_ = val;
+      pending_upper_text_set_ = true;
+    } else {
+      applyUpperTextFromHa( val );
+    }
+  }
+
+  // listen for live updates from HA
+  sens->add_on_state_callback( [ this ]( const std::string &value ) {
+    ESP_LOGI( TAG, "Upper text updated: %s", value.c_str() );
+    if ( upper_text_boot_lock_ ) {
+      pending_upper_text_ = value;
+      pending_upper_text_set_ = true;
+    } else {
+      applyUpperTextFromHa( value );
+    }
+  });
+}
+void EleksWFD::set_lower_text( text_sensor::TextSensor *sens ) {
+  lower_text_ = sens;
+
+  if ( sens == nullptr ) return;
+
+  auto parseLower = [this]( const std::string &value ) {
+    // check if empty or all spaces
+    bool blank = value.empty();
+    if ( !blank ) {
+      blank = true;
+      for ( char c : value ) {
+        if ( c != ' ' ) { blank = false; break; }
+      }
+    }
+
+    if ( blank ) {
+      lower_text_active_ = false;
+      lower_text_length_ = 0;
+      ESP_LOGI( TAG, "Lower text cleared, showing clock" );
+      return;
+    }
+
+    lower_text_length_ = value.length() > 63 ? 63 : value.length();
+    memcpy( lower_text, value.c_str(), lower_text_length_ );
+    lower_text[ lower_text_length_ ] = '\0';
+    lower_text_scroll_offset_ = 0;
+    lower_text_active_ = true;
+    ESP_LOGI( TAG, "Lower text updated: %s", lower_text );
+  };
+
+  // parse initial state if available
+  if ( sens->has_state() ) {
+    parseLower( sens->state );
+  }
+
+  // listen for live updates from HA
+  sens->add_on_state_callback( parseLower );
 }
 
 }  // namespace elekswfd

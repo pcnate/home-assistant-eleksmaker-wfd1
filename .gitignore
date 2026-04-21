@@ -7,3 +7,17 @@ lib/
 .env*
 !.env.example
 sensors.json
+dist/*
+!dist/eleksmaker-gif-editor.js
+env.example
+logs/
+run.log
+stop.trigger
+*.pfx
+target/
+Cargo.lock
+/.esphome/
+__pycache__/
+.tmp-gif-frames/
+eleksmaker-home.yaml
+secrets.yaml
