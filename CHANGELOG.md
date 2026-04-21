@@ -1,3 +1,11 @@
+# [1.0.0-rc.22](https://github.com/pcnate/home-assistant-eleksmaker-wfd1/compare/v1.0.0-rc.21...v1.0.0-rc.22) (2026-04-21)
+
+
+### Bug Fixes
+
+* Add esbuild & disable code splitting ([b8b7d87](https://github.com/pcnate/home-assistant-eleksmaker-wfd1/commit/b8b7d872da4dd97d6c8d53742dc85a134fb6f1b6))
+* Add Node types to tsconfig ([a1c502d](https://github.com/pcnate/home-assistant-eleksmaker-wfd1/commit/a1c502d59f069243989763e4b25100f40dd93db3))
+
 # [1.0.0-rc.21](https://github.com/pcnate/home-assistant-eleksmaker-wfd1/compare/v1.0.0-rc.20...v1.0.0-rc.21) (2026-04-18)
 
 
